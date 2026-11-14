@@ -75,7 +75,13 @@ export default function DataExplorer({ sources, planId, site, onTerrainImported 
 
   const runOdeSearch = async () => {
     setLoading('ode'); setError(''); setNotice('');
-    try { setOdeResult(await api.odeSearch(instrument, { minLat: -6.5733, maxLat: -2.8078, westLon: 135.1843, eastLon: 139.2413, limit: 40 })); }
+    const siteBounds: Record<string, { minLat: number; maxLat: number; westLon: number; eastLon: number }> = {
+      jezero: { minLat: 17.5, maxLat: 19.2, westLon: 76.5, eastLon: 78.8 },
+      gale: { minLat: -6.6, maxLat: -2.8, westLon: 135.1, eastLon: 139.4 },
+      meridiani: { minLat: -4.5, maxLat: 0.2, westLon: 350.5, eastLon: 358.5 },
+      elysium: { minLat: 2.69, maxLat: 5.40, westLon: 135.2, eastLon: 136.1 },
+    };
+    try { setOdeResult(await api.odeSearch(instrument, { ...(siteBounds[site.id] ?? siteBounds.gale), limit: 40 })); }
     catch (err) { setError(err instanceof Error ? err.message : 'ODE search failed'); }
     finally { setLoading(null); }
   };
@@ -185,7 +191,7 @@ export default function DataExplorer({ sources, planId, site, onTerrainImported 
 
     <section className="archive-search-card">
       <div className="archive-section-head"><b>03 / MARS ORBITAL DATA EXPLORER</b><span className="connected-tag">ODE REST</span></div>
-      <p>Searches product footprints intersecting the Gale Crater region. ODE uses east-positive longitudes in the query; verify each product's map-projection label.</p>
+      <p>Searches product footprints around {site.name}. ODE uses east-positive longitudes in the query; verify each product's map-projection label.</p>
       <div className="archive-search-line"><select value={instrument} onChange={(e) => setInstrument(e.target.value)} aria-label="Instrument"><option>HiRISE</option><option>CTX</option><option>CRISM</option></select><button onClick={() => void runOdeSearch()} disabled={loading !== null}>{loading === 'ode' ? 'SEARCHING' : 'SEARCH ODE'}</button></div>
       {odeResult && <ArchiveResultView result={odeResult}/>}
       <a href="https://oderest.rsl.wustl.edu/ODE_REST_V2.1.6.pdf" target="_blank" rel="noreferrer">ODE REST MANUAL ↗</a>
