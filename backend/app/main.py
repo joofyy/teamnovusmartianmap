@@ -447,7 +447,11 @@ async def import_dem(
     global TERRAIN
     if site_id not in SITE_IDS:
         raise HTTPException(status_code=422, detail=f"Choose one of the supported sites: {', '.join(sorted(SITE_IDS))}.")
-    suffix = Path(file.filename or "terrain.tif").suffix.lower()
+    uploaded_name = Path(file.filename or "").name
+    expected_name = get_site(site_id)["dem"]["expected_filename"]
+    if uploaded_name.lower() != expected_name.lower():
+        raise HTTPException(status_code=422, detail=f"This site requires the documented {expected_name} product. Do not assign a different site's DEM to this site.")
+    suffix = Path(uploaded_name).suffix.lower()
     if suffix not in {".tif", ".tiff", ".img"}:
         raise HTTPException(status_code=422, detail="Upload the selected site's GeoTIFF (.tif/.tiff) or HiRISE PDS DTM (.img).")
     max_upload_bytes = 400 * 1024 * 1024
