@@ -7,6 +7,7 @@ class Point(BaseModel):
 
 
 class PlanRequest(BaseModel):
+    site_id: str = Field(default="gale", min_length=1, max_length=32)
     start: Point
     goal: Point
     constraints: dict = Field(default_factory=dict)
@@ -19,6 +20,7 @@ class ReplanRequest(BaseModel):
 
 
 class BenchmarkRequest(BaseModel):
+    site_id: str = Field(default="gale", min_length=1, max_length=32)
     start: Point
     goal: Point
     constraints: dict = Field(default_factory=dict)
