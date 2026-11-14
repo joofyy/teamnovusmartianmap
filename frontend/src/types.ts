@@ -1,3 +1,24 @@
+export type MarsSite = {
+  id: string;
+  name: string;
+  mission: string;
+  region: string;
+  center: { latitude: number; longitude_east: number };
+  dem: {
+    name: string;
+    source: string;
+    resolution_m: number;
+    format: string;
+    size_mb: number;
+    download_url: string;
+    documentation_url: string;
+    coverage_note: string;
+    import_formats: string[];
+  };
+  terrain_loaded: boolean;
+  terrain_status: string;
+};
+
 export type Point = { x: number; y: number };
 
 export type PlannerObjective = 'distance' | 'time' | 'energy' | 'terrain_risk' | 'environment_risk' | 'radiation' | 'uncertainty' | 'science_opportunity_cost' | 'oxygen';
@@ -84,6 +105,10 @@ export type Route = {
   search: {
     expanded_nodes: number;
     generated_labels: number;
+    runtime_ms?: number;
+    edge_cache_hits?: number;
+    edge_cache_misses?: number;
+    max_labels_per_cell?: number;
     pareto_labels_at_goal: number;
     objective_vector: Record<string, number>;
     approximate_frontier: boolean;
@@ -94,6 +119,8 @@ export type Route = {
 
 export type PlanResponse = {
   plan_id: string;
+  site_id?: string;
+  planning_runtime_ms?: number;
   terrain_id: string;
   start: Point;
   goal: Point;
