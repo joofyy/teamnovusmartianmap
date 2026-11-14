@@ -17,6 +17,7 @@ from .models import BenchmarkRequest, ConditionUpdateRequest, PlanRequest, Repla
 from .planner import MissionConstraints, build_route_set, route_metrics
 from .registry import get_registry
 from .terrain import Terrain, generate_terrain
+from .sites import SITE_IDS, get_site, get_site_catalog
 from .data_catalog import get_data_catalog
 from .services.archive_clients import ArchiveServiceError, search_pds, resolve_pds_product, search_ode
 from .domain.science_assistant import answer_question, load_evidence
@@ -50,6 +51,7 @@ app.add_middleware(
 )
 
 TERRAIN: Terrain = generate_terrain()
+SITE_TERRAINS: dict[str, Terrain] = {"gale": TERRAIN}
 PLAN_SESSIONS: dict[str, dict[str, Any]] = {}
 
 
@@ -68,6 +70,29 @@ def _get_session_planner(session: dict[str, Any]) -> LPAStar:
         session["planner"] = planner
     return planner
 
+
+
+def _terrain_for_site(site_id: str) -> Terrain:
+    if site_id not in SITE_IDS:
+        raise HTTPException(status_code=404, detail=f"Unknown landing site '{site_id}'.")
+    selected = SITE_TERRAINS.get(site_id)
+    if selected is None:
+        site = get_site(site_id)
+        dem = site["dem"]
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"No terrain DEM is loaded for {site['name']}. Download "
+                f"{dem['name']} ({dem['format']}, {dem['size_mb']} MB) from "
+                f"{dem['download_url']} and import it in DATA → Import a verified Mars DEM."
+            ),
+        )
+    return selected
+
+
+@app.get("/api/sites")
+def sites() -> dict[str, Any]:
+    return {"sites": get_site_catalog(SITE_TERRAINS), "note": "A site is route-ready only after its source DEM has been imported and passed CRS/body checks. Downloading a product does not itself load it into the planner."}
 
 @app.get("/api/jezero/pois")
 def jezero_pois() -> dict[str, Any]:
@@ -97,8 +122,8 @@ def health() -> dict[str, str]:
     return {"status": "ok", "project": "MARSCOPE", "release": "0.3.1"}
 
 @app.get("/api/terrain")
-def terrain() -> dict[str, Any]:
-    return TERRAIN.to_dict()
+def terrain(site_id: str = Query(default="gale", min_length=1, max_length=32)) -> dict[str, Any]:
+    return _terrain_for_site(site_id).to_dict()
 
 @app.get("/api/registry")
 def registry() -> dict[str, Any]:
@@ -115,16 +140,16 @@ def registry() -> dict[str, Any]:
 def routes(payload: PlanRequest) -> dict[str, Any]:
     start = (payload.start.x, payload.start.y)
     goal = (payload.goal.x, payload.goal.y)
+    selected_terrain = _terrain_for_site(payload.site_id)
     try:
         constraints = MissionConstraints.from_dict(payload.constraints)
-        route_set = build_route_set(TERRAIN, start, goal, constraints)
+        route_set = build_route_set(selected_terrain, start, goal, constraints)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    # Copy the terrain for this plan, but defer LPA* construction until the
-    # user actually requests an obstacle or condition update. Ordinary route
-    # generation should not pay for an unused incremental-repair graph.
-    session_terrain = copy.deepcopy(TERRAIN)
+    # Copy only the selected site's terrain and defer LPA* construction until
+    # a replanning action is requested.
+    session_terrain = copy.deepcopy(selected_terrain)
     plan_id = str(uuid.uuid4())
     PLAN_SESSIONS[plan_id] = {
         "terrain": session_terrain,
@@ -135,18 +160,20 @@ def routes(payload: PlanRequest) -> dict[str, Any]:
         "obstacles_added": [],
         "condition_updates": [],
         "routes": route_set,
-        "terrain_id": TERRAIN.terrain_id,
+        "site_id": payload.site_id,
+        "terrain_id": selected_terrain.terrain_id,
         "created_utc": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
     }
 
     return {
         "plan_id": plan_id,
-        "terrain_id": "gale-demo-synthetic-01",
+        "site_id": payload.site_id,
+        "terrain_id": selected_terrain.terrain_id,
         "start": {"x": start[0], "y": start[1]},
         "goal": {"x": goal[0], "y": goal[1]},
         "constraints": constraints.__dict__,
         "routes": route_set,
-        "scientific_note": "All route results are calculated on the deterministic synthetic tile, not on a NASA terrain raster.",
+        "scientific_note": ("All route results use the selected site terrain. " + session_terrain.warning),
     }
 
 @app.post("/api/replan")
@@ -200,25 +227,27 @@ def replan(payload: ReplanRequest) -> dict[str, Any]:
 def benchmark(payload: BenchmarkRequest) -> dict[str, Any]:
     start = (payload.start.x, payload.start.y)
     goal = (payload.goal.x, payload.goal.y)
+    selected_terrain = _terrain_for_site(payload.site_id)
     try:
         constraints = MissionConstraints.from_dict(payload.constraints)
         results = [
-            scalar_baseline(TERRAIN, start, goal, constraints, "standard_astar"),
-            scalar_baseline(TERRAIN, start, goal, constraints, "dijkstra"),
-            scalar_baseline(TERRAIN, start, goal, constraints, "distance_only"),
+            scalar_baseline(selected_terrain, start, goal, constraints, "standard_astar"),
+            scalar_baseline(selected_terrain, start, goal, constraints, "dijkstra"),
+            scalar_baseline(selected_terrain, start, goal, constraints, "distance_only"),
         ]
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {
-        "benchmark_scope": "Same synthetic grid, hard constraints, and resource reserve; scalar A*/Dijkstra use balanced weights.",
+        "benchmark_scope": f"Selected site {payload.site_id}; same terrain, hard constraints, and resource reserve; scalar A*/Dijkstra use balanced weights.",
         "results": results,
-        "warning": "Runtime and route comparisons are local synthetic-fixture measurements, not evidence of performance on NASA rasters or field conditions.",
+        "warning": "Runtime and route comparisons apply only to this imported terrain grid and the illustrative planner model; they are not field-navigation validation.",
     }
 
 @app.post("/api/reset")
 def reset() -> dict[str, str]:
-    global TERRAIN
+    global TERRAIN, SITE_TERRAINS
     TERRAIN = generate_terrain()
+    SITE_TERRAINS = {"gale": TERRAIN}
     PLAN_SESSIONS.clear()
     return {"status": "reset", "terrain_id": "gale-demo-synthetic-01"}
 
@@ -404,14 +433,23 @@ async def import_observations(
 
 
 @app.post("/api/terrain/import-dem")
-async def import_dem(file: UploadFile = File(...), width: int = Form(default=96), height: int = Form(default=96), vertical_units: str = Form(default="unspecified")) -> dict[str, Any]:
+async def import_dem(
+    file: UploadFile = File(...),
+    width: int = Form(default=96),
+    height: int = Form(default=96),
+    vertical_units: str = Form(default="unspecified"),
+    site_id: str = Form(default="gale"),
+) -> dict[str, Any]:
     global TERRAIN
+    if site_id not in SITE_IDS:
+        raise HTTPException(status_code=422, detail=f"Choose one of the supported sites: {', '.join(sorted(SITE_IDS))}.")
     suffix = Path(file.filename or "terrain.tif").suffix.lower()
-    if suffix not in {".tif", ".tiff"}:
-        raise HTTPException(status_code=422, detail="Upload a GeoTIFF (.tif or .tiff).")
-    raw = await file.read(250 * 1024 * 1024 + 1)
-    if not raw or len(raw) > 250 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="GeoTIFF must be non-empty and no larger than 250 MB.")
+    if suffix not in {".tif", ".tiff", ".img"}:
+        raise HTTPException(status_code=422, detail="Upload the selected site's GeoTIFF (.tif/.tiff) or HiRISE PDS DTM (.img).")
+    max_upload_bytes = 400 * 1024 * 1024
+    raw = await file.read(max_upload_bytes + 1)
+    if not raw or len(raw) > max_upload_bytes:
+        raise HTTPException(status_code=413, detail="DEM must be non-empty and no larger than 400 MB. For larger products, use a smaller regional DEM or prepare a documented clip locally.")
     data_root = Path(__file__).resolve().parent / "data" / "ingested"
     data_root.mkdir(parents=True, exist_ok=True)
     destination = data_root / f"{uuid.uuid4().hex}{suffix}"
@@ -426,9 +464,13 @@ async def import_dem(file: UploadFile = File(...), width: int = Form(default=96)
         raise HTTPException(status_code=422, detail=f"Could not process the GeoTIFF: {exc}") from exc
     provenance_path = destination.with_suffix(destination.suffix + ".provenance.json")
     provenance_path.write_text(json.dumps(provenance, indent=2), encoding="utf-8")
+    grid.coordinate_info["site_id"] = site_id
+    grid.coordinate_info["official_dem_product"] = get_site(site_id)["dem"]["name"]
+    provenance["selected_site_id"] = site_id
+    SITE_TERRAINS[site_id] = grid
     TERRAIN = grid
     PLAN_SESSIONS.clear()
-    return {"terrain": TERRAIN.to_dict(), "provenance": provenance, "stored_file": destination.name, "notice": "Active planner terrain replaced with a DEM-derived grid. Non-DEM environmental/science layers remain unavailable and are treated as unknown, not as zero risk."}
+    return {"terrain": grid.to_dict(), "provenance": provenance, "stored_file": destination.name, "notice": f"Real elevation grid imported for {get_site(site_id)['name']}. Slope and roughness are derived from the DEM; other spatial science/hazard layers remain unavailable unless separately imported."}
 
 
 @app.post("/api/terrain/import-layer")
@@ -439,10 +481,12 @@ async def import_terrain_layer(
     value_max: float = Form(...),
     band: int = Form(default=1),
     source_unit: str = Form(default="unspecified"),
+    site_id: str = Form(default="gale"),
 ) -> dict[str, Any]:
-    """Align a user-selected official product band to an already imported DEM."""
+    """Align a user-selected official product band to the selected site's DEM."""
     global TERRAIN
-    if TERRAIN.status == "SIMULATED_NOT_GEOREFERENCED":
+    selected_terrain = _terrain_for_site(site_id)
+    if selected_terrain.status == "SIMULATED_NOT_GEOREFERENCED":
         raise HTTPException(status_code=409, detail="Import a verified Mars DEM before adding aligned raster layers.")
     suffix = Path(file.filename or "layer.tif").suffix.lower()
     if suffix not in {".tif", ".tiff"}:
@@ -455,7 +499,7 @@ async def import_terrain_layer(
     destination = data_root / f"layer-{uuid.uuid4().hex}{suffix}"
     destination.write_bytes(raw)
     try:
-        provenance = import_aligned_layer(destination, TERRAIN, layer=layer, value_min=value_min, value_max=value_max, band=band, source_unit=source_unit)
+        provenance = import_aligned_layer(destination, selected_terrain, layer=layer, value_min=value_min, value_max=value_max, band=band, source_unit=source_unit)
     except (ValueError, RuntimeError) as exc:
         destination.unlink(missing_ok=True)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -464,8 +508,10 @@ async def import_terrain_layer(
         raise HTTPException(status_code=422, detail=f"Could not align the raster layer: {exc}") from exc
     provenance_path = destination.with_suffix(destination.suffix + ".provenance.json")
     provenance_path.write_text(json.dumps(provenance, indent=2), encoding="utf-8")
+    if site_id == "gale":
+        TERRAIN = selected_terrain
     PLAN_SESSIONS.clear()
-    return {"terrain": TERRAIN.to_dict(), "provenance": provenance, "notice": f"Layer {layer} aligned to the active DEM. Recalculate route alternatives before interpreting them."}
+    return {"terrain": selected_terrain.to_dict(), "provenance": provenance, "notice": f"Layer {layer} aligned to the active DEM. Recalculate route alternatives before interpreting them."}
 
 
 @app.get("/api/data/raster/inspect")
@@ -498,7 +544,8 @@ def offline_package(payload: dict[str, Any] = Body(default={})) -> FileResponse:
     root = Path(__file__).resolve().parent / "data"
     output_dir = root / "offline_packages"
     filename = f"marscope-offline-{uuid.uuid4().hex[:10]}.zip"
-    output = create_package(output=output_dir / filename, terrain=TERRAIN, plan=plan_data, data_root=root)
+    package_terrain = session["terrain"] if session else TERRAIN
+    output = create_package(output=output_dir / filename, terrain=package_terrain, plan=plan_data, data_root=root)
     return FileResponse(output, media_type="application/zip", filename=filename)
 
 
