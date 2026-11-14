@@ -4,6 +4,7 @@ import copy
 import json
 import os
 import uuid
+from time import perf_counter
 from pathlib import Path
 from typing import Any
 
@@ -143,7 +144,9 @@ def routes(payload: PlanRequest) -> dict[str, Any]:
     selected_terrain = _terrain_for_site(payload.site_id)
     try:
         constraints = MissionConstraints.from_dict(payload.constraints)
+        planner_started = perf_counter()
         route_set = build_route_set(selected_terrain, start, goal, constraints)
+        planning_runtime_ms = round((perf_counter() - planner_started) * 1000.0, 2)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -169,6 +172,7 @@ def routes(payload: PlanRequest) -> dict[str, Any]:
         "plan_id": plan_id,
         "site_id": payload.site_id,
         "terrain_id": selected_terrain.terrain_id,
+        "planning_runtime_ms": planning_runtime_ms,
         "start": {"x": start[0], "y": start[1]},
         "goal": {"x": goal[0], "y": goal[1]},
         "constraints": constraints.__dict__,
@@ -461,7 +465,7 @@ async def import_dem(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         destination.unlink(missing_ok=True)
-        raise HTTPException(status_code=422, detail=f"Could not process the GeoTIFF: {exc}") from exc
+        raise HTTPException(status_code=422, detail=f"Could not process the selected raster: {exc}") from exc
     provenance_path = destination.with_suffix(destination.suffix + ".provenance.json")
     provenance_path.write_text(json.dumps(provenance, indent=2), encoding="utf-8")
     grid.coordinate_info["site_id"] = site_id
