@@ -4,5 +4,6 @@ pydantic==2.10.6
 httpx==0.28.1
 numpy>=2.0,<3.0
 python-multipart>=0.0.20
-# Optional: pytest for tests. Optional geospatial ingestion dependencies are
-# documented separately because GDAL/rasterio installation is platform-specific.
+rasterio>=1.4,<2.0
+pyproj>=3.7,<4.0
+# pytest remains optional for local development.
