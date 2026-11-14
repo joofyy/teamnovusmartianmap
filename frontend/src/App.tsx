@@ -3,7 +3,7 @@ import TerrainScene from './components/TerrainScene';
 import DataExplorer from './components/DataExplorer';
 import ScienceAssistant from './components/ScienceAssistant';
 import { api } from './api';
-import type { BenchmarkResult, OfficialSource, OfflineStatus, PlanResponse, Point, ReplanResponse, Route, TerrainData } from './types';
+import type { BenchmarkResult, MarsSite, OfficialSource, OfflineStatus, PlanResponse, Point, ReplanResponse, Route, TerrainData } from './types';
 
 type Layer = 'elevation' | 'slope' | 'roughness' | 'regolith' | 'temperature' | 'environment' | 'radiation' | 'uncertainty' | 'science';
 const INITIAL_START: Point = { x: 4, y: 5 };
@@ -39,6 +39,8 @@ function gridHeading(from: Point, to: Point) {
 }
 export default function App() {
   const [terrain, setTerrain] = useState<TerrainData | null>(null);
+  const [sites, setSites] = useState<MarsSite[]>([]);
+  const [selectedSiteId, setSelectedSiteId] = useState('gale');
   const [datasets, setDatasets] = useState<OfficialSource[]>([]);
   const [plan, setPlan] = useState<PlanResponse | null>(null);
   const [routes, setRoutes] = useState<Route[]>([]);
@@ -74,10 +76,11 @@ export default function App() {
 
   useEffect(() => {
     let alive = true;
-    Promise.all([api.terrain(), api.dataCatalog(), api.health()])
-      .then(([terrainData, catalog, health]) => {
+    Promise.all([api.terrain('gale'), api.dataCatalog(), api.health(), api.sites()])
+      .then(([terrainData, catalog, health, siteCatalog]) => {
         if (!alive) return;
         setTerrain(terrainData);
+        setSites(siteCatalog.sites);
         setDatasets(catalog.sources);
         setStatus(health.status.toUpperCase());
       })
@@ -90,13 +93,43 @@ export default function App() {
     return () => { alive = false; };
   }, []);
 
+  const handleSiteChange = useCallback(async (nextSiteId: string) => {
+    const nextSite = sites.find((site) => site.id === nextSiteId);
+    if (!nextSite || nextSiteId === selectedSiteId) return;
+    setSelectedSiteId(nextSiteId);
+    setLoading(true);
+    setTerrain(null);
+    setPlan(null);
+    setRoutes([]);
+    setBenchmarkResults([]);
+    setReplanResult(null);
+    setError('');
+    setConditionNotice('');
+    setAddedObstacles([]);
+    setLayer('elevation');
+    setStart(INITIAL_START);
+    setGoal(INITIAL_GOAL);
+    try {
+      const nextTerrain = await api.terrain(nextSiteId);
+      setTerrain(nextTerrain);
+      setStart({ x: Math.min(4, nextTerrain.width - 2), y: Math.min(5, nextTerrain.height - 2) });
+      setGoal({ x: Math.max(1, nextTerrain.width - 5), y: Math.max(1, nextTerrain.height - 8) });
+      setSites((current) => current.map((site) => site.id === nextSiteId
+        ? { ...site, terrain_loaded: nextTerrain.status !== 'SIMULATED_NOT_GEOREFERENCED', terrain_status: nextTerrain.status }
+        : site));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No terrain DEM is loaded for ' + nextSite.name + '.');
+    } finally {
+      setLoading(false);
+    }
+  }, [sites, selectedSiteId]);
   const runPlan = useCallback(async (newStart = start, newGoal = goal) => {
     setPlanning(true);
     setError('');
     setReplanResult(null);
     setAddedObstacles([]);
     try {
-      const result = await api.plan(newStart, newGoal, {
+      const result = await api.plan(selectedSiteId, newStart, newGoal, {
         max_slope_deg: maxSlope,
         max_temperature_c: -35,
         eva_limit_minutes: evaMinutes,
@@ -126,7 +159,7 @@ export default function App() {
     } finally {
       setPlanning(false);
     }
-  }, [start, goal, maxSlope, evaMinutes, oxygenBudget, oxygenRate, restInterval, equipmentMass, sciencePriority, riskAversion, uncertaintyAversion]);
+  }, [selectedSiteId, start, goal, maxSlope, evaMinutes, oxygenBudget, oxygenRate, restInterval, equipmentMass, sciencePriority, riskAversion, uncertaintyAversion]);
 
   useEffect(() => {
     if (terrain && !plan && !planning && !error) void runPlan();
@@ -143,7 +176,7 @@ export default function App() {
     setBenchmarking(true);
     setError('');
     try {
-      const result = await api.benchmark(start, goal, {
+      const result = await api.benchmark(selectedSiteId, start, goal, {
         max_slope_deg: maxSlope, max_temperature_c: -35, eva_limit_minutes: evaMinutes,
         energy_budget_wh: 180, return_reserve_fraction: 0.25, suit_mass_kg: 42, carried_equipment_mass_kg: equipmentMass, base_speed_mps: 0.65,
         oxygen_budget_l: oxygenBudget, oxygen_consumption_lpm: oxygenRate,
@@ -269,7 +302,7 @@ export default function App() {
           <div className="brand-mark">M</div>
           <div><div className="brand-name">MARSCOPE</div><div className="brand-tag">FROM ORBIT TO BOOTPRINT</div></div>
         </div>
-        <div className="mission-crumb"><span className="crumb-dot" /> GALE CRATER <span>/</span> MOUNT SHARP <span>/</span> BOXWORK STUDY</div>
+        <div className="mission-crumb"><span className="crumb-dot" /> {sites.find((site) => site.id === selectedSiteId)?.name ?? "MARS SITE"} <span>/</span> {sites.find((site) => site.id === selectedSiteId)?.region ?? "SURFACE RECONNAISSANCE"}</div>
         <div className="top-status"><span className={`status-dot ${status === 'OK' ? 'online' : 'offline'}`} /> API {status} <span className="top-divider" /> <span className="mono">BUILD 0.3.1</span></div>
       </header>
 
@@ -278,13 +311,24 @@ export default function App() {
           <div className="rail-head"><span className="eyebrow">MISSION AREA</span><span className="live-chip">{terrain?.status === 'SIMULATED_NOT_GEOREFERENCED' ? 'SIMULATION' : 'IMPORTED DEM'}</span></div>
           <div className="location-card">
             <div className="planet-glyph">♂</div>
-            <div className="location-copy"><strong>Mount Sharp</strong><span>Gale Crater · Mars</span></div>
+            <div className="location-copy"><strong>{sites.find((site) => site.id === selectedSiteId)?.name ?? "Mars site"}</strong><span>{sites.find((site) => site.id === selectedSiteId)?.mission ?? "Select a mission"} · Mars</span></div>
             <div className="location-chevron">⌄</div>
+          </div>
+          <select
+            value={selectedSiteId}
+            onChange={(event) => void handleSiteChange(event.target.value)}
+            aria-label="Select Mars landing site"
+            style={{ width: "100%", margin: "8px 0 12px", padding: "10px 12px", borderRadius: 8, background: "var(--panel, #15191e)", color: "inherit", border: "1px solid var(--line, #343a42)" }}
+          >
+            {sites.map((site) => <option key={site.id} value={site.id}>{site.name}{site.terrain_loaded ? " · DEM loaded" : " · DEM needed"}</option>)}
+          </select>
+          <div className="site-data-caption">
+            {sites.find((site) => site.id === selectedSiteId)?.dem.name ?? "Official terrain product"} · {sites.find((site) => site.id === selectedSiteId)?.dem.resolution_m ?? "—"} m/post
           </div>
           <div className="section-kicker">MISSION PLANNING</div>
           <div className="field-stack">
             <div className="field-label"><span>01 / START POINT</span><button className={`tiny-action ${pickMode === 'start' ? 'active' : ''}`} onClick={() => setPickMode(pickMode === 'start' ? null : 'start')}>PICK ON MAP</button></div>
-            <div className="coord-card"><span className="point-symbol start-symbol">A</span><div><b>{pointText(start)}</b><small>Grid reference · synthetic tile</small></div></div>
+            <div className="coord-card"><span className="point-symbol start-symbol">A</span><div><b>{pointText(start)}</b><small>{terrain?.status === 'SIMULATED_NOT_GEOREFERENCED' ? 'Grid reference · synthetic demo' : 'Grid cell · imported DEM'}</small></div></div>
             <div className="field-label"><span>02 / DESTINATION</span><button className={`tiny-action ${pickMode === 'goal' ? 'active' : ''}`} onClick={() => setPickMode(pickMode === 'goal' ? null : 'goal')}>PICK ON MAP</button></div>
             <div className="coord-card"><span className="point-symbol goal-symbol">B</span><div><b>{pointText(goal)}</b><small>Grid reference · synthetic tile</small></div></div>
             {pickMode && <div className="pick-hint">Click a location on the terrain to set the {pickMode === 'start' ? 'start point' : 'destination'}.</div>}
@@ -314,7 +358,7 @@ export default function App() {
 
         <section className="center-column">
           <div className="view-header">
-            <div><div className="eyebrow">SURFACE RECONNAISSANCE</div><h1>Gale Crater <span>/</span> Mount Sharp</h1></div>
+            <div><div className="eyebrow">SURFACE RECONNAISSANCE</div><h1>{sites.find((site) => site.id === selectedSiteId)?.name ?? "Mars site"} <span>/</span> {sites.find((site) => site.id === selectedSiteId)?.region ?? "Surface reconnaissance"}</h1></div>
             <div className="view-actions"><div className="segmented"><button className={viewMode === '3D' ? 'selected' : ''} onClick={() => setViewMode('3D')}>3D TERRAIN</button><button className={viewMode === '2D' ? 'selected' : ''} onClick={() => setViewMode('2D')}>2D MAP</button></div><button className={`eva-toggle ${evaMode ? 'on' : ''}`} onClick={() => setEvaMode(!evaMode)}><span className="eva-dot" /> EVA MODE</button></div>
           </div>
 
@@ -362,7 +406,7 @@ export default function App() {
             </div>
           ) : (
             <div className="route-section">
-              <div className="section-heading"><div><span className="eyebrow">PATHFINDING ENGINE</span><h2>Route alternatives <span className="count-pill">{routes.length}</span></h2></div><div className="route-actions"><button className="text-action" onClick={() => void runBenchmark()} disabled={benchmarking || planning}>{benchmarking ? 'COMPARING…' : 'COMPARE BASELINES'}</button><button className="text-action" onClick={() => void injectObstacle()} disabled={!plan || replanning || !routes.length}>{replanning ? 'REPAIRING GRAPH…' : '＋ SIMULATE OBSTACLE'}</button><button className="text-action" onClick={() => void injectConditionUpdate()} disabled={!plan || replanning || !routes.length}>{replanning ? 'REPAIRING GRAPH…' : 'SIMULATE CONDITION UPDATE'}</button></div></div>
+              <div className="section-heading"><div><span className="eyebrow">PATHFINDING ENGINE</span><h2>Route alternatives <span className="count-pill">{routes.length}</span></h2>{plan?.planning_runtime_ms !== undefined && <small>Planner runtime: {(plan.planning_runtime_ms / 1000).toFixed(2)} s · 3 approximate Pareto profiles</small>}</div><div className="route-actions"><button className="text-action" onClick={() => void runBenchmark()} disabled={benchmarking || planning}>{benchmarking ? 'COMPARING…' : 'COMPARE BASELINES'}</button><button className="text-action" onClick={() => void injectObstacle()} disabled={!plan || replanning || !routes.length}>{replanning ? 'REPAIRING GRAPH…' : '＋ SIMULATE OBSTACLE'}</button><button className="text-action" onClick={() => void injectConditionUpdate()} disabled={!plan || replanning || !routes.length}>{replanning ? 'REPAIRING GRAPH…' : 'SIMULATE CONDITION UPDATE'}</button></div></div>
               <div className="route-cards">
                 {routes.map((route) => <button key={route.id} className={`route-card ${selectedRoute === route.id ? 'selected' : ''}`} onClick={() => setSelectedRoute(route.id)}>
                   <div className="route-card-top"><span className={`route-letter route-${route.id}`}>{route.id}</span><span className="route-status">{route.is_pareto ? 'PARETO' : 'ALTERNATIVE'}</span></div>
@@ -401,10 +445,10 @@ export default function App() {
 
           {activeTab === 'science' && <ScienceAssistant />}
 
-          {activeTab === 'data' && <DataExplorer sources={datasets} planId={plan?.plan_id} onTerrainImported={(nextTerrain) => { setTerrain(nextTerrain); setPlan(null); setRoutes([]); setBenchmarkResults([]); setError(''); setConditionNotice(''); setLayer('elevation'); const nextStart = { x: 4, y: 5 }; const nextGoal = { x: nextTerrain.width - 5, y: nextTerrain.height - 8 }; setStart(nextStart); setGoal(nextGoal); }} />}
+          {activeTab === 'data' && {sites.find((site) => site.id === selectedSiteId) && <DataExplorer sources={datasets} planId={plan?.plan_id} site={sites.find((site) => site.id === selectedSiteId)!} onTerrainImported={(nextTerrain) => { setTerrain(nextTerrain); setSites((current) => current.map((site) => site.id === selectedSiteId ? { ...site, terrain_loaded: true, terrain_status: nextTerrain.status } : site)); setPlan(null); setRoutes([]); setBenchmarkResults([]); setError(''); setConditionNotice(''); setLayer('elevation'); const nextStart = { x: 4, y: 5 }; const nextGoal = { x: nextTerrain.width - 5, y: nextTerrain.height - 8 }; setStart(nextStart); setGoal(nextGoal); }} />}}
         </aside>
       </main>
-      <footer className="app-footer"><span>© MARSCOPE RESEARCH PROTOTYPE</span><span>DATA STATUS: {terrain?.status === 'SIMULATED_NOT_GEOREFERENCED' ? 'SYNTHETIC DEMONSTRATION TILE' : 'IMPORTED DEM + UNKNOWN AUXILIARY LAYERS'}</span><span>NOT FOR OPERATIONAL USE</span></footer>
+      <footer className="app-footer"><span>© MARSCOPE RESEARCH PROTOTYPE</span><span>DATA STATUS: {terrain?.status === 'SIMULATED_NOT_GEOREFERENCED' ? 'SYNTHETIC DEMONSTRATION TILE' : terrain ? 'IMPORTED MARS DEM + UNKNOWN AUXILIARY LAYERS' : 'SITE DEM NOT LOADED'}</span><span>NOT FOR OPERATIONAL USE</span></footer>
     </div>
   );
 }
