@@ -1,7 +1,8 @@
 """Uncertainty-aware, multi-objective A* and route analytics.
 
-All hazard/science fields passed to this planner are explicitly synthetic in
-this release. The planner is a research demonstrator, not certified guidance.
+Elevation, slope and roughness may come from imported Mars DEM products;
+other spatial hazard/science layers remain unavailable unless explicitly
+imported. This is a research demonstrator, not certified guidance.
 """
 from __future__ import annotations
 
