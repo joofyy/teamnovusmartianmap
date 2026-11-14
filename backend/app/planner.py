@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import heapq
 import math
+from time import perf_counter
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -122,7 +123,7 @@ class MultiObjectiveAStar:
     result an explicitly approximate Pareto search rather than an exact full
     frontier enumeration.
     """
-    def __init__(self, terrain: Terrain, constraints: MissionConstraints, profile: str, max_labels_per_cell: int = 7):
+    def __init__(self, terrain: Terrain, constraints: MissionConstraints, profile: str, max_labels_per_cell: int = 3, edge_cache: dict[tuple[int, int, int, int], tuple[float, ...] | None] | None = None):
         if profile not in PROFILES:
             raise ValueError(f"Unknown route profile: {profile}")
         self.terrain = terrain
@@ -144,6 +145,11 @@ class MultiObjectiveAStar:
             raise ValueError("At least one objective weight multiplier must be greater than zero.")
         self.weights = {key: value / total_weight for key, value in adjusted.items()}
         self.max_labels_per_cell = max_labels_per_cell
+        # Route profiles share this lazy edge cache: terrain and constraints are
+        # identical between profile searches, so edge costs need only be built once.
+        self.edge_cache = edge_cache if edge_cache is not None else {}
+        self.edge_cache_hits = 0
+        self.edge_cache_misses = 0
         self.expanded = 0
         self.generated = 0
 
@@ -159,6 +165,16 @@ class MultiObjectiveAStar:
         return all(x <= y + eps for x, y in zip(a, b)) and any(x < y - eps for x, y in zip(a, b))
 
     def _edge_vector(self, x0: int, y0: int, x1: int, y1: int) -> tuple[float, ...] | None:
+        key = (x0, y0, x1, y1)
+        if key in self.edge_cache:
+            self.edge_cache_hits += 1
+            return self.edge_cache[key]
+        self.edge_cache_misses += 1
+        edge = self._compute_edge_vector(x0, y0, x1, y1)
+        self.edge_cache[key] = edge
+        return edge
+
+    def _compute_edge_vector(self, x0: int, y0: int, x1: int, y1: int) -> tuple[float, ...] | None:
         t = self.terrain
         c = self.constraints
         if t.is_blocked(x1, y1, c.max_slope_deg, c.max_temperature_c):
@@ -383,12 +399,20 @@ def build_route_set(terrain: Terrain, start: tuple[int, int], goal: tuple[int, i
     labels = {
         "conservative": ("A", "CONSERVATIVE", "Risk-and-uncertainty weighted alternative"),
         "balanced": ("B", "BALANCED", "Compromise across movement, risk and science"),
-        "science_first": ("C", "SCIENCE-FIRST", "Seek simulated targets without relaxing hard constraints"),
+        "science_first": ("C", "SCIENCE-FIRST", "Seek available science targets without relaxing hard constraints"),
     }
     routes: list[dict[str, Any]] = []
+    # The three searches differ only in their scalarized profile weights. Cache
+    # expensive terrain/constraint edge evaluations across all three searches.
+    shared_edge_cache: dict[tuple[int, int, int, int], tuple[float, ...] | None] = {}
     for profile, (route_id, title, summary) in labels.items():
-        model = MultiObjectiveAStar(terrain, constraints, profile)
+        model = MultiObjectiveAStar(terrain, constraints, profile, max_labels_per_cell=3, edge_cache=shared_edge_cache)
+        search_started = perf_counter()
         search = model.search(start, goal)
+        search["runtime_ms"] = round((perf_counter() - search_started) * 1000.0, 2)
+        search["edge_cache_hits"] = model.edge_cache_hits
+        search["edge_cache_misses"] = model.edge_cache_misses
+        search["max_labels_per_cell"] = model.max_labels_per_cell
         metrics = route_metrics(terrain, search["path"], constraints)
         science_available = "science" in terrain.available_layers
         display_title = title if science_available or profile != "science_first" else "SCIENCE-FIRST (NO SCIENCE LAYER)"
