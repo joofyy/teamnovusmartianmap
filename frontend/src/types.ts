@@ -99,8 +99,6 @@ export type PlanResponse = {
   goal: Point;
   constraints: MissionConstraintsPayload;
   routes: Route[];
-  incremental_balanced_path: Point[];
-  incremental_algorithm: string;
   scientific_note: string;
 };
 
