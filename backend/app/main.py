@@ -52,6 +52,23 @@ app.add_middleware(
 TERRAIN: Terrain = generate_terrain()
 PLAN_SESSIONS: dict[str, dict[str, Any]] = {}
 
+
+def _get_session_planner(session: dict[str, Any]) -> LPAStar:
+    """Create and retain LPA* only when a session needs incremental repair."""
+    planner = session.get("planner")
+    if planner is None:
+        planner = LPAStar(
+            session["terrain"],
+            session["start"],
+            session["goal"],
+            session["constraints"],
+        )
+        # Fail before mutating the session terrain if no route can be established.
+        planner.extract_path()
+        session["planner"] = planner
+    return planner
+
+
 @app.get("/api/jezero/pois")
 def jezero_pois() -> dict[str, Any]:
     """Return documented Jezero-area reference points; coordinates are not planner grid cells."""
@@ -104,20 +121,14 @@ def routes(payload: PlanRequest) -> dict[str, Any]:
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    # Retain an LPA* instance for the balanced policy. Later hazard updates
-    # repair this graph incrementally rather than rebuilding its search state.
-    try:
-        session_terrain = copy.deepcopy(TERRAIN)
-        incremental = LPAStar(session_terrain, start, goal, constraints)
-        incremental_path = incremental.extract_path()
-        if not route_metrics(session_terrain, incremental_path, constraints)["return_feasible"]:
-            incremental_path = [(p["x"], p["y"]) for p in route_set[1]["path"]]
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=f"Incremental planner could not establish a route: {exc}") from exc
+    # Copy the terrain for this plan, but defer LPA* construction until the
+    # user actually requests an obstacle or condition update. Ordinary route
+    # generation should not pay for an unused incremental-repair graph.
+    session_terrain = copy.deepcopy(TERRAIN)
     plan_id = str(uuid.uuid4())
     PLAN_SESSIONS[plan_id] = {
         "terrain": session_terrain,
-        "planner": incremental,
+        "planner": None,
         "start": start,
         "goal": goal,
         "constraints": constraints,
@@ -135,8 +146,6 @@ def routes(payload: PlanRequest) -> dict[str, Any]:
         "goal": {"x": goal[0], "y": goal[1]},
         "constraints": constraints.__dict__,
         "routes": route_set,
-        "incremental_balanced_path": [{"x": x, "y": y} for x, y in incremental_path],
-        "incremental_algorithm": "Lifelong Planning A* (LPA*) with retained g/rhs state",
         "scientific_note": "All route results are calculated on the deterministic synthetic tile, not on a NASA terrain raster.",
     }
 
@@ -154,8 +163,12 @@ def replan(payload: ReplanRequest) -> dict[str, Any]:
     if terrain.obstacle[y][x]:
         raise HTTPException(status_code=409, detail="That cell is already blocked")
 
+    try:
+        planner = _get_session_planner(session)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Incremental planner could not establish a route: {exc}") from exc
+
     terrain.obstacle[y][x] = True
-    planner: LPAStar = session["planner"]
     try:
         before_expanded = planner.expanded
         planner.update_cells([(x, y)])
@@ -516,13 +529,16 @@ def replan_condition(payload: ConditionUpdateRequest) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail=f"{payload.kind} must be between {low} and {high}.")
     if (x, y) in (session["start"], session["goal"]):
         raise HTTPException(status_code=422, detail="Cannot change the start or destination cell in a scenario update.")
+    try:
+        planner = _get_session_planner(session)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Incremental planner could not establish a route: {exc}") from exc
     array = getattr(terrain, payload.kind)
     old_value = array[y][x]
     old_available_layers = set(terrain.available_layers)
     array[y][x] = float(payload.value)
     layer_name = {"temperature_c": "temperature", "environment_index": "atmosphere", "radiation_index": "radiation", "slope_deg": "slope", "uncertainty": "uncertainty"}[payload.kind]
     terrain.available_layers.add(layer_name)
-    planner: LPAStar = session["planner"]
     before_expanded = planner.expanded
     try:
         planner.update_cells([(x, y)])
