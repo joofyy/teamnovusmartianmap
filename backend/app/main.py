@@ -476,7 +476,8 @@ async def import_dem(
     grid.coordinate_info["official_dem_product"] = get_site(site_id)["dem"]["name"]
     provenance["selected_site_id"] = site_id
     SITE_TERRAINS[site_id] = grid
-    TERRAIN = grid
+    if site_id == "gale":
+        TERRAIN = grid
     PLAN_SESSIONS.clear()
     return {"terrain": grid.to_dict(), "provenance": provenance, "stored_file": destination.name, "notice": f"Real elevation grid imported for {get_site(site_id)['name']}. Slope and roughness are derived from the DEM; other spatial science/hazard layers remain unavailable unless separately imported."}
 
