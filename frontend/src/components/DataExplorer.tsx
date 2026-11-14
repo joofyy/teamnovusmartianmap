@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import type { JezeroPoisResponse, OfficialSource, TerrainData } from '../types';
+import type { MarsSite, JezeroPoisResponse, OfficialSource, TerrainData } from '../types';
 
 type ArchiveResult = { archive: string; endpoint: string; query: Record<string, unknown>; record_count: number; records: Record<string, unknown>[]; raw: unknown; documentation: string; note: string };
 type ObservationImport = { instrument: string; source_file: string; sha256: string; imported_utc: string; row_count: number; summary: Record<string, unknown>; provenance_note: string };
@@ -14,7 +14,7 @@ function textField(record: Record<string, unknown>, keys: string[]): string {
   return 'Metadata field not present in this record';
 }
 
-export default function DataExplorer({ sources, planId, onTerrainImported }: { sources: OfficialSource[]; planId?: string; onTerrainImported: (terrain: TerrainData) => void }) {
+export default function DataExplorer({ sources, planId, site, onTerrainImported }: { sources: OfficialSource[]; planId?: string; site: MarsSite; onTerrainImported: (terrain: TerrainData) => void }) {
   const [keywords, setKeywords] = useState('Curiosity boxwork Mount Sharp');
   const [instrument, setInstrument] = useState('HiRISE');
   const [pdsResult, setPdsResult] = useState<ArchiveResult | null>(null);
@@ -84,7 +84,7 @@ export default function DataExplorer({ sources, planId, onTerrainImported }: { s
     if (!file) return;
     setLoading('dem'); setError(''); setNotice('');
     try {
-      const result = await api.importDem(file, demVerticalUnits);
+      const result = await api.importDem(file, demVerticalUnits, site.id);
       onTerrainImported(result.terrain);
       setNotice(`DEM imported. Active route grid: ${result.terrain.width} × ${result.terrain.height}. ${result.notice}`);
     } catch (err) { setError(err instanceof Error ? err.message : 'DEM import failed'); }
@@ -95,7 +95,7 @@ export default function DataExplorer({ sources, planId, onTerrainImported }: { s
     if (!file) return;
     setLoading('layer'); setError(''); setNotice('');
     try {
-      const result = await api.importLayer(file, layerKind, layerMin, layerMax, layerUnit);
+      const result = await api.importLayer(file, layerKind, layerMin, layerMax, layerUnit, site.id);
       onTerrainImported(result.terrain);
       setNotice(`Layer ${layerKind} aligned to the active Mars DEM. ${result.notice}`);
     } catch (err) { setError(err instanceof Error ? err.message : 'Raster layer import failed'); }
@@ -152,6 +152,17 @@ export default function DataExplorer({ sources, planId, onTerrainImported }: { s
   };
 
   return <div className="data-content archive-explorer">
+    <section className="archive-search-card">
+      <div className="archive-section-head"><b>ACTIVE LANDING-SITE DEM</b><span className={site.terrain_loaded ? "connected-tag" : "manual-tag"}>{site.terrain_loaded ? "REAL DEM LOADED" : "IMPORT REQUIRED"}</span></div>
+      <h3>{site.name}</h3>
+      <p><b>{site.dem.name}</b> · {site.dem.resolution_m.toFixed(site.dem.resolution_m < 2 ? 2 : 1)} m/post · {site.dem.format} · {site.dem.size_mb} MB</p>
+      <p>{site.dem.coverage_note}</p>
+      <div className="archive-search-line">
+        <a href={site.dem.download_url} target="_blank" rel="noreferrer">DOWNLOAD OFFICIAL SITE DEM ↗</a>
+        <a href={site.dem.documentation_url} target="_blank" rel="noreferrer">PRODUCT DOCUMENTATION ↗</a>
+      </div>
+      <small>Download the selected source and import the file below. Route planning stays unavailable for a site until a valid Mars DEM is loaded and passes the CRS/body checks.</small>
+    </section>
     <div className="panel-title"><span className="eyebrow">OFFICIAL ARCHIVE CONNECTORS</span><h3>NASA data access</h3><p>Discover official products, inspect their original metadata, import geospatial rasters with provenance, and preserve selected mission materials for offline review.</p></div>
 
     <section className="archive-search-card">
@@ -204,14 +215,14 @@ export default function DataExplorer({ sources, planId, onTerrainImported }: { s
 
     <section className="archive-search-card">
       <div className="archive-section-head"><b>06 / IMPORT A VERIFIED MARS DEM</b><span className="manual-tag">GEOSPATIAL INGESTION</span></div>
-      <p>Upload a map-projected GeoTIFF with metre units and a Mars-sized reference ellipsoid. Confirm vertical units from the original PDS label before import. The pipeline derives slope and local roughness, masks NoData, and retains a source hash and CRS.</p>
+      <p>Upload the selected site's map-projected DEM. GeoTIFF and HiRISE PDS3 IMG are supported when GDAL can read their embedded projection metadata. Confirm vertical units from the original product label. The pipeline derives slope and local roughness, masks NoData, and retains a source hash and CRS.</p>
       <label className="compact-field-label">DEM VERTICAL UNITS (VERIFY IN ORIGINAL PRODUCT LABEL)
         <select className="mapping-input" value={demVerticalUnits} onChange={(e) => setDemVerticalUnits(e.target.value)} aria-label="DEM vertical units">
           <option value="unspecified">Not verified yet</option><option value="m">Metres (verified in source label)</option>
         </select>
       </label>
-      <label className="upload-button">{loading === 'dem' ? 'PROCESSING DEM…' : 'SELECT DEM GEOTIFF'}<input type="file" accept=".tif,.tiff,image/tiff" hidden onChange={(e) => void importDem(e.target.files?.[0])} disabled={loading !== null}/></label>
-      <small>Earth UTM rasters and unknown-body coordinate systems are rejected. A PNG/JPEG/CTX image is not an elevation model. Importing in metres requires explicit confirmation above.</small>
+      <label className="upload-button">{loading === 'dem' ? 'PROCESSING DEM…' : 'SELECT SITE DEM FILE'}<input type="file" accept={site.dem.import_formats.join(',')} hidden onChange={(e) => void importDem(e.target.files?.[0])} disabled={loading !== null}/></label>
+      <small>Earth UTM rasters and unknown-body coordinate systems are rejected. A browse image or CTX image is not an elevation model. Meridiani's PDS IMG must expose a compatible projection through its embedded label. Gale's selected 30 m product is 311.8 MB; the upload ceiling is 400 MB.</small>
     </section>
 
     <section className="archive-search-card">
