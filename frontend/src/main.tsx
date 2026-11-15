@@ -9,6 +9,7 @@ import './mission-intelligence.css';
 import './marscope-experience.css';
 import './ux-polish.css';
 import './ui-refresh.css';
+import './workspace-cleanup.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
