@@ -106,10 +106,10 @@ export default function RouteExplainability({
           routePoint: p,
           reason: 'slope_exceeded',
           title: `Steep Incline Bypass near (${p.x}, ${p.y})`,
-          description: `Direct advancement blocked by local slope up to ${neighborMaxSlope.toFixed(1)}Â°, exceeding the ${maxSlopeDeg}Â° limit. Route skirts the slope along a gentler ${pSlope.toFixed(1)}Â° contour.`,
+          description: `Direct advancement blocked by local slope up to ${neighborMaxSlope.toFixed(1)}°, exceeding the ${maxSlopeDeg}° limit. Route skirts the slope along a gentler ${pSlope.toFixed(1)}° contour.`,
           severity: 'high',
-          observedValue: `${neighborMaxSlope.toFixed(1)}Â°`,
-          limitValue: `${maxSlopeDeg}Â°`,
+          observedValue: `${neighborMaxSlope.toFixed(1)}°`,
+          limitValue: `${maxSlopeDeg}°`,
         });
       } else if (blockedNeighbor) {
         events.push({
@@ -181,7 +181,7 @@ export default function RouteExplainability({
           <h4>Route Explainability</h4>
         </div>
         <span className={`tortuosity-badge ${tortuosity > 1.25 ? 'alert' : ''}`}>
-          {tortuosityRating} Â· {(tortuosity).toFixed(2)}Ã—
+          {tortuosityRating} · {(tortuosity).toFixed(2)}×
         </span>
       </div>
 
@@ -190,10 +190,10 @@ export default function RouteExplainability({
           <span className="comp-label">DIRECT (STRAIGHT LINE)</span>
           <div className="comp-value">{directDistM.toFixed(0)} m</div>
           <small className={directMaxSlope > maxSlopeDeg ? 'bad' : 'good'}>
-            Peak slope: {directMaxSlope.toFixed(1)}Â°
+            Peak slope: {directMaxSlope.toFixed(1)}°
           </small>
           {directSteepCells > 0 && (
-            <small className="bad">{directSteepCells} cells exceed {maxSlopeDeg}Â° limit</small>
+            <small className="bad">{directSteepCells} cells exceed {maxSlopeDeg}° limit</small>
           )}
         </div>
         <div className="comp-divider">VS</div>
@@ -227,7 +227,7 @@ export default function RouteExplainability({
           ))
         ) : (
           <p className="avoidance-none">
-            Route closely tracks the Euclidean vector without encountering slopes exceeding {maxSlopeDeg}Â°.
+            Route closely tracks the Euclidean vector without encountering slopes exceeding {maxSlopeDeg}°.
           </p>
         )}
       </div>
