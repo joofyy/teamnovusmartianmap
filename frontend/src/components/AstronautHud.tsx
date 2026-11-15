@@ -7,6 +7,7 @@ type Props = {
   currentPosition: Point; progressIndex: number; targets: Target[]; selectedTargetIds: string[];
   maxSlope: number;
   oxygenRemainingL: number; energyRemainingWh: number; evaMinutesRemaining: number;
+  evaPlaying: boolean; onEvaPlayPause: () => void; onEvaStepForward: () => void; onEvaReset: () => void;
 };
 
 function distance(a: Point, b: Point, cellSize: number) { return Math.hypot(a.x - b.x, a.y - b.y) * cellSize; }
@@ -42,6 +43,7 @@ function nearestConstraint(terrain: TerrainData, point: Point, maxSlope: number,
 export default function AstronautHud({
   mode, onModeChange, onClose, siteName, terrain, route, start, goal, currentPosition, progressIndex,
   targets, selectedTargetIds, maxSlope, oxygenRemainingL, energyRemainingWh, evaMinutesRemaining,
+  evaPlaying, onEvaPlayPause, onEvaStepForward, onEvaReset,
 }: Props) {
   const path = route?.path ?? [];
   const next = path[Math.min(path.length - 1, Math.max(0, progressIndex + 1))] ?? goal;
@@ -89,6 +91,12 @@ export default function AstronautHud({
         <div><small>EVA TIME*</small><strong>{safe(evaMinutesRemaining)} min</strong></div>
         <div><small>ROUTE STATUS</small><strong>{route?.metrics.return_feasible ? 'RETURN FEASIBLE' : route ? 'CHECK RESERVE' : 'NOT PLANNED'}</strong></div>
       </div>}
+    </div>
+    <div className="hud-transport-controls" aria-label="Shared EVA simulation controls">
+      <span><b>EVA SIMULATION</b><small>{evaPlaying ? 'PLAYING' : 'PAUSED'} · {progressPercent}% COMPLETE</small></span>
+      <button onClick={onEvaReset} disabled={progressIndex === 0 && !evaPlaying}>RESET</button>
+      <button onClick={onEvaStepForward} disabled={!path.length || progressIndex >= path.length - 1}>NEXT CELL</button>
+      <button onClick={onEvaPlayPause} disabled={!path.length}>{evaPlaying ? 'PAUSE' : 'PLAY'}</button>
     </div>
     <div className="hud-disclaimer">* Resource values are planner estimates / simulations, not live suit telemetry. Constraint markers reflect only the loaded route grid and configured slope limit. This browser HUD is a research visualization, not connected to astronaut hardware or certified navigation sensors.</div>
   </div>;
