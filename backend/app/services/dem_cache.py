@@ -374,6 +374,8 @@ def load_or_fetch_site_terrain(site_id: str, site: dict[str, Any]) -> Terrain:
             width=96,
             height=96,
             vertical_units=str(site["dem"].get("vertical_units", "m")),
+            window_center_xy_m=tuple(coverage["projected_reference_xy_m"]),
+            window_size_m=2400.0,
         )
     except (ValueError, RuntimeError, OSError) as exc:
         raise DemValidationError(
