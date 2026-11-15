@@ -29,7 +29,8 @@ def test_resource_limited_mission_can_be_rejected():
     try:
         MultiObjectiveAStar(terrain, c, "balanced").search((3, 3), (58, 58))
     except ValueError as exc:
-        assert "No route" in str(exc)
+        assert "terrain-valid path exists" in str(exc)
+        assert "energy budget" in str(exc)
     else:
         raise AssertionError("Expected a route rejection under restrictive resources")
 
