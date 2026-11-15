@@ -52,7 +52,7 @@ export default function GuidedTour({ step, onChange, onClose }: Props) {
         <div className="guided-tour-progress" aria-label={`Step ${step + 1} of ${steps.length}`}>
           {steps.map((item, index) => <span key={item.section} className={index <= step ? "complete" : ""} />)}
         </div>
-        <div className="guided-tour-section">{current.section}<span>STEP {String(step + 1).padStart(2, "0")} / 07</span></div>
+        <div className="guided-tour-section">{current.section}<span>STEP {String(step + 1).padStart(2, "0")} / 06</span></div>
         <h2 id="tour-title" ref={titleRef} tabIndex={-1}>{current.title}</h2>
         <p id="tour-description">{current.copy}</p>
         <div className="guided-tour-note"><span>FIELD NOTE</span>{current.note}</div>
