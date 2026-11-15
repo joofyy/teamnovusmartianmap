@@ -54,7 +54,7 @@ app.add_middleware(
     allow_origins=_configured_cors_origins(),
     # Allow this Vercel project’s production domain and branch-preview domains.
     # The pattern is restricted to this exact project slug, not all Vercel sites.
-    allow_origin_regex=r"^https://teamnovusmartianmap(?:-[a-z0-9-]+)?\.vercel\.app$",
+    allow_origin_regex=r"^https://(?:teamnovusmartianmap|marscope-alpha)(?:-[a-z0-9-]+)?\.vercel\.app$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
