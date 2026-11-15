@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { MissionEvent, Point, Route, Target, TerrainData } from '../types';
 import type { MissionSite } from '../missionSites';
-import { gridToGeo } from '../utils/coordinates';
 import MarsEnvironmentTelemetry from './MarsEnvironmentTelemetry';
 
 type Props = {
@@ -104,7 +103,6 @@ export default function MissionReplay({
   const metricsAfter = asRecord(eventData.metrics_after);
   const visibleProgress = replayPath.slice(0, Math.min(frame + 1, replayPath.length));
   const replayPosition = replayPath.length ? replayPath[Math.min(frame, replayPath.length - 1)] : null;
-  const replayGeo = replayPosition ? gridToGeo(replayPosition, terrain, missionSite) : null;
   const replayDistanceM = pathDistance(replayPath, cellSizeM);
   const replayTravelledM = pathDistance(visibleProgress, cellSizeM);
   const replayRemainingM = pathDistance(replayPath.slice(Math.min(frame, replayPath.length)), cellSizeM);
@@ -120,8 +118,9 @@ export default function MissionReplay({
 
   if (events.length === 0) {
     return <section className="mission-replay-card">
-      <div className="mission-replay-head"><div><span className="eyebrow">MISSION RECORD</span><h3>Mission Replay & Summary</h3></div></div>
-      <div className="replay-empty">The mission event stream is not available yet. Generate a route plan to create its initial record.</div>
+      <div className="mission-replay-head"><div><span className="eyebrow">MISSION RECORD · {siteName.toUpperCase()}</span><h3>Mission Replay & Summary</h3><p>Route playback is waiting for a mission event stream.</p></div></div>
+      <div className="replay-empty">The mission event stream is not available yet. Generate or refresh a route plan to create its initial record.</div>
+      <MarsEnvironmentTelemetry missionSiteName={siteName} missionSite={missionSite} terrain={terrain} position={startingPath[0] ?? null} progress={0} eventSequence={0} />
     </section>;
   }
 
