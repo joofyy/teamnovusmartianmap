@@ -481,7 +481,7 @@ def record_mission_event(plan_id: str, payload: MissionEventRequest) -> dict[str
     session = PLAN_SESSIONS.get(plan_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Mission session not found or expired.")
-    allowed_types = {"JEV_DECISION", "ROUTE_SELECTED", "REPLAY_NOTE"}
+    allowed_types = {"JEV_DECISION", "ROUTE_SELECTED", "REPLAY_NOTE", "EVA_STARTED", "EVA_PROGRESS", "EVA_RESET", "EVA_COMPLETED"}
     if payload.event_type not in allowed_types:
         raise HTTPException(status_code=422, detail=f"Event type must be one of: {', '.join(sorted(allowed_types))}.")
     if payload.event_type == "ROUTE_SELECTED":
