@@ -1382,7 +1382,7 @@ export default function App() {
           isRunning={evaRunning}
           canRun={Boolean(terrain && isVerifiedRealTerrain(terrain, selectedMissionSiteId) && selectedPath.length > 1)}
           canAdvance={selectedPath.length > 1 && evaIndex < selectedPath.length - 1}
-          tourActive={tourStep === 6}
+          tourActive={tourStep === 5}
           siteName={selectedMissionSite.region}
           terrain={terrain}
           route={selected ?? null}
