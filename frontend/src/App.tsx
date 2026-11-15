@@ -608,7 +608,7 @@ export default function App() {
   const evaStartedPlanRef = useRef<string | null>(null);
   const lastRecordedEvaProgressRef = useRef<{ planId: string | null; routeId: string; index: number }>({ planId: null, routeId: '', index: 0 });
   useEffect(() => {
-    if (!evaMode || !plan || evaStartedPlanRef.current === plan.plan_id) return;
+    if ((!evaMode && !evaPlaying) || !plan || evaStartedPlanRef.current === plan.plan_id) return;
     evaStartedPlanRef.current = plan.plan_id;
     recordMissionEvent(plan.plan_id, {
       event_type: 'EVA_STARTED',
