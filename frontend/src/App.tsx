@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import TerrainScene from './components/TerrainScene';
 import ScientificTerrainInspector from './components/ScientificTerrainInspector';
 import DataExplorer from './components/DataExplorer';
-import DecisionCenter from './components/DecisionCenter';
 import RouteProfileChart from './components/RouteProfileChart';
 import RouteExplainability from './components/RouteExplainability';
 import RouteComparisonTable from './components/RouteComparisonTable';
@@ -18,9 +17,8 @@ import CoordinateInputDialog, { CoordinateTargetType } from './components/Coordi
 import { gridToGeo } from './utils/coordinates';
 import { api } from './api';
 import { DEFAULT_MISSION_SITE_ID, MISSION_SITES } from './missionSites';
-import type { BenchmarkResult, JevPathfindingWeights, JevProvider, MissionEvent, MissionConstraintsPayload, OfficialSource, OfflineStatus, PlanResponse, Point, ReplanResponse, Route, Target, TerrainData } from './types';
+import type { BenchmarkResult, MissionEvent, MissionConstraintsPayload, OfficialSource, OfflineStatus, PlanResponse, Point, ReplanResponse, Route, Target, TerrainData } from './types';
 
-type ActiveJevDecision = { siteId: string; result: JevPathfindingWeights };
 type Layer = 'elevation' | 'slope' | 'roughness' | 'regolith' | 'temperature' | 'environment' | 'radiation' | 'uncertainty' | 'science';
 const INITIAL_START: Point = { x: 34, y: 42 };
 const INITIAL_GOAL: Point = { x: 55, y: 53 };
@@ -37,6 +35,18 @@ const layerNames: { id: Layer; name: string; unit: string }[] = [
   { id: 'uncertainty', name: 'Uncertainty', unit: '0–1 index' },
   { id: 'science', name: 'Science potential', unit: '0–1 user-defined index' },
 ];
+
+const layerDataKeys: Record<Layer, string> = {
+  elevation: 'elevation',
+  slope: 'slope',
+  roughness: 'roughness',
+  regolith: 'regolith',
+  temperature: 'temperature',
+  environment: 'atmosphere',
+  radiation: 'radiation',
+  uncertainty: 'uncertainty',
+  science: 'science',
+};
 
 function isVerifiedRealTerrain(terrain: TerrainData, siteId: string): boolean {
   return terrain.site_id === siteId
@@ -87,7 +97,7 @@ export default function App() {
   const [pickMode, setPickMode] = useState<'start' | 'goal' | 'waypoint' | null>(null);
   const [inspectedCell, setInspectedCell] = useState<Point | null>(null);
   const [evaMode, setEvaMode] = useState(false);
-  const [activeTab, setActiveTab] = useState<'planner' | 'jev' | 'science' | 'inspect'>('planner');
+  const [activeTab, setActiveTab] = useState<'planner' | 'science' | 'inspect'>('planner');
   const [dataMenuOpen, setDataMenuOpen] = useState(false);
   const [workspaceEntered, setWorkspaceEntered] = useState(false);
   const [tourStep, setTourStep] = useState<number | null>(null);
@@ -124,15 +134,6 @@ export default function App() {
   const [previewRoute, setPreviewRoute] = useState<{ path: Point[]; label: string } | null>(null);
   const [deviationPoint, setDeviationPoint] = useState<Point | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
-  // Provider credentials stay in React memory only; never persist them to storage or a URL.
-  const [jevProvider, setJevProvider] = useState<JevProvider>('typesafe');
-  const [jevApiKey, setJevApiKey] = useState('');
-  const [jevMissionPrompt, setJevMissionPrompt] = useState('Balance traverse efficiency, terrain risk, resource reserves and access to scientifically useful areas.');
-  const [activeJevDecision, setActiveJevDecision] = useState<ActiveJevDecision | null>(null);
-  const [jevLoading, setJevLoading] = useState(false);
-  const [jevError, setJevError] = useState('');
-  const [jevNotice, setJevNotice] = useState('');
-
   // Coordinate Input Dialog state for Astronaut manual entry
   const [coordDialogOpen, setCoordDialogOpen] = useState<boolean>(false);
   const [coordDialogTarget, setCoordDialogTarget] = useState<CoordinateTargetType>('start');
@@ -162,9 +163,8 @@ export default function App() {
   useEffect(() => {
     if (tourStep === null) return;
     setDataMenuOpen(tourStep === 1);
-    setHudOpen(tourStep === 6);
-    if (tourStep === 4) setActiveTab('jev');
-    else if (tourStep === 5) setActiveTab('science');
+    setHudOpen(tourStep === 5);
+    if (tourStep === 4) setActiveTab('science');
     else if (tourStep === 2 || tourStep === 3) setActiveTab('planner');
   }, [tourStep]);
 
@@ -283,13 +283,8 @@ export default function App() {
     return () => { alive = false; };
   }, [selectedMissionSiteId]);
 
-  const runPlan = useCallback(async (newStart = start, newGoal = goal, currentWaypoints = waypoints, decisionOverride: ActiveJevDecision | null = activeJevDecision) => {
+  const runPlan = useCallback(async (newStart = start, newGoal = goal, currentWaypoints = waypoints) => {
     const siteId = selectedMissionSiteId;
-    const validJevDecision = decisionOverride
-      && decisionOverride.siteId === siteId
-      && decisionOverride.result.missionPrompt === jevMissionPrompt
-      ? decisionOverride
-      : null;
     if (!terrain || !isVerifiedRealTerrain(terrain, siteId) || activeMissionSiteIdRef.current !== siteId) return;
     setPlanning(true);
     setError('');
@@ -310,7 +305,6 @@ export default function App() {
         oxygen_consumption_lpm: oxygenRate,
         rest_interval_min: restInterval,
         rest_duration_min: 5,
-        objective_weights: validJevDecision?.result.weights,
         objective_weight_multipliers: {
           science_opportunity_cost: sciencePriority,
           terrain_risk: riskAversion,
@@ -330,29 +324,9 @@ export default function App() {
       if (activeMissionSiteIdRef.current !== siteId) return;
       setPlan(result);
       setRoutes(result.routes);
-      setSelectedRoute(validJevDecision ? 'B' : result.routes[0]?.id ?? 'B');
+      setSelectedRoute(result.routes[0]?.id ?? 'B');
       setEvaProgressIndex(0);
       try {
-        if (validJevDecision) {
-          await api.recordMissionEvent(result.plan_id, {
-            event_type: 'JEV_DECISION',
-            title: 'JEV pathfinding decision recorded',
-            summary: `JEV selected the ${validJevDecision.result.strategy} strategy for Route B.`,
-            data: {
-              provider: validJevDecision.result.provider,
-              model: validJevDecision.result.model,
-              strategy: validJevDecision.result.strategy,
-              evaluatedAt: validJevDecision.result.evaluatedAt,
-              missionPrompt: validJevDecision.result.missionPrompt,
-              weights: validJevDecision.result.weights,
-              judgements: validJevDecision.result.judgements,
-              jevInfluenceShare: validJevDecision.result.jevInfluenceShare,
-              strategyPriorShare: validJevDecision.result.strategyPriorShare,
-              policyVersion: validJevDecision.result.policyVersion,
-              notice: validJevDecision.result.notice,
-            },
-          });
-        }
         const eventSnapshot = await api.missionEvents(result.plan_id);
         if (activeMissionSiteIdRef.current === siteId) setMissionEvents(eventSnapshot.events);
       } catch {
@@ -365,43 +339,7 @@ export default function App() {
     } finally {
       setPlanning(false);
     }
-  }, [selectedMissionSiteId, terrain, start, goal, waypoints, maxSlope, evaMinutes, oxygenBudget, oxygenRate, restInterval, equipmentMass, energyBudgetWh, sciencePriority, riskAversion, uncertaintyAversion, activeJevDecision, jevMissionPrompt]);
-
-  const generateJevWeights = useCallback(async () => {
-    const siteId = selectedMissionSiteId;
-    if (!terrain || !isVerifiedRealTerrain(terrain, siteId) || activeMissionSiteIdRef.current !== siteId) return;
-    setJevLoading(true);
-    setJevError('');
-    setJevNotice('');
-    try {
-      const result = await api.jevPathfindingWeights({
-        provider: jevProvider,
-        apiKey: jevApiKey,
-        missionPrompt: jevMissionPrompt,
-        site_id: siteId,
-      });
-      if (activeMissionSiteIdRef.current !== siteId) return;
-      const decision = { siteId, result };
-      setActiveJevDecision(decision);
-      setJevNotice('JEV returned a validated preference vector. Replanning with adaptive Route B; Routes A and C remain static baselines.');
-      await runPlan(start, goal, waypoints, decision);
-    } catch (err) {
-      if (activeMissionSiteIdRef.current !== siteId) return;
-      setActiveJevDecision(null);
-      setJevError(err instanceof Error ? err.message : 'JEV evaluation failed.');
-      setJevNotice('Adaptive weights were discarded. MARSCOPE is using the static balanced route instead.');
-      await runPlan(start, goal, waypoints, null);
-    } finally {
-      setJevLoading(false);
-    }
-  }, [selectedMissionSiteId, terrain, jevProvider, jevApiKey, jevMissionPrompt, start, goal, waypoints, runPlan]);
-
-  const clearJevDecision = useCallback(() => {
-    if (!activeJevDecision) return;
-    setActiveJevDecision(null);
-    setJevNotice('The previous adaptive vector was cleared. Replanning with the static balanced profile.');
-    void runPlan(start, goal, waypoints, null);
-  }, [activeJevDecision, start, goal, waypoints, runPlan]);
+  }, [selectedMissionSiteId, terrain, start, goal, waypoints, maxSlope, evaMinutes, oxygenBudget, oxygenRate, restInterval, equipmentMass, energyBudgetWh, sciencePriority, riskAversion, uncertaintyAversion]);
 
   useEffect(() => {
     if (terrain && terrain.site_id === selectedMissionSiteId && !terrainLoading && !plan && !planning && !error) void runPlan();
@@ -409,8 +347,6 @@ export default function App() {
 
   const handleMissionSiteChange = (siteId: string) => {
     activeMissionSiteIdRef.current = siteId;
-    setActiveJevDecision(null);
-    setJevNotice('Site changed. The previous site-specific JEV vector was cleared.');
     setMissionEvents([]);
     setSelectedMissionSiteId(siteId);
   };
@@ -719,7 +655,7 @@ export default function App() {
             <div className="workspace-guide-copy">
               <span className="workspace-guide-kicker">QUICK START</span>
               <strong>Build your first Mars traverse</strong>
-              <p>Choose a mission site, set points A and B, then generate route alternatives. For scientific use, load a georeferenced Mars DEM first; without one, treat terrain and route metrics as illustrative. Use Data Sources for provenance and JEV Advisor to review Route B preferences.</p>
+              <p>Choose a mission site, set your start and destination, then compare route alternatives. Load a georeferenced Mars DEM before interpreting terrain or route metrics as measured results. Use Data Sources to review coverage and provenance.</p>
             </div>
             <ol className="workspace-guide-steps">
               <li><span>01</span> Choose a site</li>
@@ -915,19 +851,24 @@ export default function App() {
           </div>
 
           <div className="field-stack mission-params">
-            <div className="section-kicker">OPERATIONAL CONSTRAINTS</div>
+            <div className="section-kicker">CORE CONSTRAINTS</div>
             <div className="slider-row"><div><label>Maximum slope</label><b>{maxSlope}°</b></div><input type="range" min="10" max="35" value={maxSlope} onChange={(e) => setMaxSlope(Number(e.target.value))} /></div>
             <div className="slider-row"><div><label>EVA time budget</label><b>{evaMinutes} min</b></div><input type="range" min="60" max="300" step="15" value={evaMinutes} onChange={(e) => setEvaMinutes(Number(e.target.value))} /></div>
-            <div className="slider-row"><div><label>Energy budget</label><b>{energyBudgetWh} Wh</b></div><input type="range" min="100" max="1000" step="25" value={energyBudgetWh} onChange={(e) => setEnergyBudgetWh(Number(e.target.value))} /></div>
-            <div className="slider-row"><div><label>Oxygen budget</label><b>{oxygenBudget} L</b></div><input type="range" min="400" max="3000" step="100" value={oxygenBudget} onChange={(e) => setOxygenBudget(Number(e.target.value))} /></div>
-            <div className="slider-row"><div><label>Oxygen consumption assumption</label><b>{oxygenRate.toFixed(1)} L/min</b></div><input type="range" min="0.3" max="3" step="0.1" value={oxygenRate} onChange={(e) => setOxygenRate(Number(e.target.value))} /></div>
-            <div className="slider-row"><div><label>Rest interval</label><b>{restInterval} min</b></div><input type="range" min="30" max="120" step="15" value={restInterval} onChange={(e) => setRestInterval(Number(e.target.value))} /></div>
-            <div className="slider-row"><div><label>Equipment mass</label><b>{equipmentMass.toFixed(1)} kg</b></div><input type="range" min="0" max="40" step="2.5" value={equipmentMass} onChange={(e) => setEquipmentMass(Number(e.target.value))} /></div>
-            <div className="section-kicker preference-kicker">OBJECTIVE WEIGHT MULTIPLIERS</div>
-            <div className="slider-row"><div><label>Scientific opportunity</label><b>{sciencePriority.toFixed(1)}×</b></div><input type="range" min="0" max="3" step="0.1" value={sciencePriority} onChange={(e) => setSciencePriority(Number(e.target.value))} /></div>
-            <div className="slider-row"><div><label>Terrain / environment risk aversion</label><b>{riskAversion.toFixed(1)}×</b></div><input type="range" min="0" max="3" step="0.1" value={riskAversion} onChange={(e) => setRiskAversion(Number(e.target.value))} /></div>
-            <div className="slider-row"><div><label>Data uncertainty aversion</label><b>{uncertaintyAversion.toFixed(1)}×</b></div><input type="range" min="0" max="3" step="0.1" value={uncertaintyAversion} onChange={(e) => setUncertaintyAversion(Number(e.target.value))} /></div>
-            <div className="constraint-note"><span className="lock-icon">⌑</span> Multipliers reweight profile preferences and normalize weights to sum to 1. Hard constraints and return reserve are not relaxed. All mobility/resource values remain unvalidated research assumptions.</div>
+            <details className="advanced-constraints">
+              <summary><span>Advanced constraints</span><small>8 additional settings</small></summary>
+              <div className="advanced-constraint-content">
+                <div className="slider-row"><div><label>Energy budget</label><b>{energyBudgetWh} Wh</b></div><input type="range" min="100" max="1000" step="25" value={energyBudgetWh} onChange={(e) => setEnergyBudgetWh(Number(e.target.value))} /></div>
+                <div className="slider-row"><div><label>Oxygen budget</label><b>{oxygenBudget} L</b></div><input type="range" min="400" max="3000" step="100" value={oxygenBudget} onChange={(e) => setOxygenBudget(Number(e.target.value))} /></div>
+                <div className="slider-row"><div><label>Oxygen consumption assumption</label><b>{oxygenRate.toFixed(1)} L/min</b></div><input type="range" min="0.3" max="3" step="0.1" value={oxygenRate} onChange={(e) => setOxygenRate(Number(e.target.value))} /></div>
+                <div className="slider-row"><div><label>Rest interval</label><b>{restInterval} min</b></div><input type="range" min="30" max="120" step="15" value={restInterval} onChange={(e) => setRestInterval(Number(e.target.value))} /></div>
+                <div className="slider-row"><div><label>Equipment mass</label><b>{equipmentMass.toFixed(1)} kg</b></div><input type="range" min="0" max="40" step="2.5" value={equipmentMass} onChange={(e) => setEquipmentMass(Number(e.target.value))} /></div>
+                <div className="section-kicker preference-kicker">ROUTE PREFERENCES</div>
+                <div className="slider-row"><div><label>Scientific opportunity</label><b>{sciencePriority.toFixed(1)}×</b></div><input type="range" min="0" max="3" step="0.1" value={sciencePriority} onChange={(e) => setSciencePriority(Number(e.target.value))} /></div>
+                <div className="slider-row"><div><label>Terrain / environment risk aversion</label><b>{riskAversion.toFixed(1)}×</b></div><input type="range" min="0" max="3" step="0.1" value={riskAversion} onChange={(e) => setRiskAversion(Number(e.target.value))} /></div>
+                <div className="slider-row"><div><label>Data uncertainty aversion</label><b>{uncertaintyAversion.toFixed(1)}×</b></div><input type="range" min="0" max="3" step="0.1" value={uncertaintyAversion} onChange={(e) => setUncertaintyAversion(Number(e.target.value))} /></div>
+              </div>
+            </details>
+            <div className="constraint-note"><span className="lock-icon">⌑</span> Hard limits and return reserves remain enforced. Resource values and mobility assumptions are research estimates, not validated EVA limits.</div>
           </div>
           <button className="primary-button" onClick={() => void runPlan()} disabled={planning || terrainLoading || !terrain || terrain.site_id !== selectedMissionSiteId}>
             {planning ? <><span className="spinner" /> COMPUTING ROUTES</> : <><span>⌁</span> GENERATE ROUTE OPTIONS</>}
@@ -955,7 +896,7 @@ export default function App() {
               <button className={`eva-toggle ${evaMode ? 'on' : ''}`} onClick={() => setEvaMode(!evaMode)}>
                 <span className="eva-dot" /> EVA MODE
               </button>
-              <button className="hud-launch-button" data-tour-active={tourStep === 6 || undefined} onClick={() => setHudOpen(true)} disabled={!terrain}>
+              <button className="hud-launch-button" data-tour-active={tourStep === 5 || undefined} onClick={() => setHudOpen(true)} disabled={!terrain}>
                 ⌖ OPEN ASTRONAUT HUD
               </button>
             </div>
@@ -1005,35 +946,30 @@ export default function App() {
             </div>
           )}
 
-          {/* Layer strip with full explanations for unavailable layers */}
           <div className="layer-strip">
-            <div className="layer-title"><span className="eyebrow">MAP LAYERS</span><span className="layer-count">{layerNames.filter((entry) => { const key: Record<Layer, string> = { elevation: 'elevation', slope: 'slope', roughness: 'roughness', regolith: 'regolith', temperature: 'temperature', environment: 'atmosphere', radiation: 'radiation', uncertainty: 'uncertainty', science: 'science' }; return (terrain?.available_layers ?? []).includes(key[entry.id]); }).length} / {layerNames.length} AVAILABLE</span></div>
-            <div className="layer-buttons">
-              {layerNames.map((entry) => {
-                const key: Record<Layer, string> = {
-                  elevation: 'elevation', slope: 'slope', roughness: 'roughness',
-                  regolith: 'regolith', temperature: 'temperature', environment: 'atmosphere',
-                  radiation: 'radiation', uncertainty: 'uncertainty', science: 'science',
-                };
-                const isAvailable = (terrain?.available_layers ?? []).includes(key[entry.id]);
-                const tooltipText = isAvailable
-                  ? `${entry.name} (${entry.unit})`
-                  : `${entry.name} is unavailable. No continuous georeferenced raster is published for this site. Import via DATA panel.`;
-
-                return (
-                  <button
-                    key={entry.id}
-                    className={!isAvailable ? 'layer-button disabled' : layer === entry.id ? 'layer-button active' : 'layer-button'}
-                    onClick={() => isAvailable && setLayer(entry.id)}
-                    disabled={!isAvailable}
-                    title={tooltipText}
-                  >
-                    <span className={`layer-swatch swatch-${entry.id}`} />
-                    {entry.name} {!isAvailable ? '(NO DATA)' : ''}
-                  </button>
-                );
-              })}
+            <div className="layer-title">
+              <span className="eyebrow">MAP LAYERS</span>
+              <span className="layer-count">{layerNames.filter((entry) => (terrain?.available_layers ?? []).includes(layerDataKeys[entry.id])).length} / {layerNames.length} AVAILABLE</span>
             </div>
+            <div className="layer-buttons">
+              {layerNames.filter((entry) => (terrain?.available_layers ?? []).includes(layerDataKeys[entry.id])).map((entry) => (
+                <button
+                  key={entry.id}
+                  className={layer === entry.id ? 'layer-button active' : 'layer-button'}
+                  onClick={() => setLayer(entry.id)}
+                  title={`${entry.name} (${entry.unit})`}
+                >
+                  <span className={`layer-swatch swatch-${entry.id}`} />
+                  {entry.name}
+                </button>
+              ))}
+            </div>
+            {layerNames.some((entry) => !(terrain?.available_layers ?? []).includes(layerDataKeys[entry.id])) && (
+              <p className="layer-unavailable-note">
+                Not available at this site: {layerNames.filter((entry) => !(terrain?.available_layers ?? []).includes(layerDataKeys[entry.id])).map((entry) => entry.name).join(' · ')}.
+                Add georeferenced layers through Data Sources.
+              </p>
+            )}
             <div className="layer-metadata">
               <span>SOURCE <b>{terrain && isVerifiedRealTerrain(terrain, selectedMissionSiteId) ? 'Verified NASA / user DEM' : 'Not verified as measured terrain'}</b></span>
               <span>GRID SPACING <b>{terrain?.cell_size_m?.toFixed(1) ?? 8} m</b></span>
@@ -1249,8 +1185,7 @@ export default function App() {
           <div className="right-tabs" aria-label="Workspace tools">
             <button className={activeTab === 'planner' ? 'active' : ''} onClick={() => setActiveTab('planner')}>ROUTE SUMMARY</button>
             <button className={activeTab === 'inspect' ? 'active' : ''} onClick={() => setActiveTab('inspect')} title="Inspect a selected terrain cell">CELL DETAILS</button>
-            <button className={activeTab === 'science' ? 'active' : ''} data-tour-active={tourStep === 5 || undefined} onClick={() => setActiveTab('science')}>SCIENCE TARGETS</button>
-            <button className={activeTab === 'jev' ? 'active' : ''} data-tour-active={tourStep === 4 || undefined} onClick={() => setActiveTab('jev')}>JEV ADVISOR</button>
+            <button className={activeTab === 'science' ? 'active' : ''} data-tour-active={tourStep === 4 || undefined} onClick={() => setActiveTab('science')}>SCIENCE TARGETS</button>
             <button className={`data-launch ${dataMenuOpen ? 'active' : ''}`} onClick={() => setDataMenuOpen(true)} aria-haspopup="dialog" aria-expanded={dataMenuOpen}>DATA SOURCES <span className="data-launch-glyph">↗</span></button>
           </div>
           {activeTab === 'planner' && selected && <div className="analytics-content">
@@ -1372,27 +1307,7 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'jev' && (
-            <DecisionCenter
-              siteName={`${selectedMissionSite.region} · ${selectedMissionSite.mission}`}
-              siteId={selectedMissionSiteId}
-              hasTerrain={Boolean(terrain && isVerifiedRealTerrain(terrain, selectedMissionSiteId))}
-              availableLayers={terrain?.available_layers ?? []}
-              provider={jevProvider}
-              apiKey={jevApiKey}
-              missionPrompt={jevMissionPrompt}
-              decision={activeJevDecision?.result ?? null}
-              applied={Boolean(activeJevDecision && activeJevDecision.siteId === selectedMissionSiteId && activeJevDecision.result.missionPrompt === jevMissionPrompt)}
-              loading={jevLoading}
-              error={jevError}
-              notice={jevNotice}
-              onProviderChange={(value) => { setJevProvider(value); clearJevDecision(); }}
-              onApiKeyChange={setJevApiKey}
-              onMissionPromptChange={(value) => { setJevMissionPrompt(value); if (activeJevDecision) clearJevDecision(); }}
-              onGenerate={() => void generateJevWeights()}
-              onForgetKey={() => { setJevApiKey(''); setJevNotice('Provider key cleared from page memory. Any previously generated vector remains a non-secret planner preference.'); }}
-            />
-          )}
+
 
         </aside>
       </main>
@@ -1420,7 +1335,6 @@ export default function App() {
                   setTerrain(nextTerrain);
                   setInspectedCell(null);
                   setActiveTab('planner');
-                  setActiveJevDecision(null);
                   setPlan(null);
                   setRoutes([]);
                   setWaypoints([]);
