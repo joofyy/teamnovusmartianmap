@@ -616,7 +616,7 @@ export default function App() {
       summary: 'The operator entered the browser-based EVA simulation for the selected route.',
       data: { route_id: selectedRoute, start: { x: start.x, y: start.y }, destination: { x: goal.x, y: goal.y } },
     });
-  }, [evaMode, plan?.plan_id, selectedRoute, start.x, start.y, goal.x, goal.y, recordMissionEvent]);
+  }, [evaMode, evaPlaying, plan?.plan_id, selectedRoute, start.x, start.y, goal.x, goal.y, recordMissionEvent]);
 
   useEffect(() => {
     if (!plan || !selectedPath.length) return;
