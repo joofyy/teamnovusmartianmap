@@ -710,7 +710,7 @@ export default function App() {
           <div><div className="brand-name">MARSCOPE</div><div className="brand-tag">FROM ORBIT TO BOOTPRINT</div></div>
         </div>
         <div className="mission-crumb"><span className="crumb-dot" /> {selectedMissionSite.region.toUpperCase()} <span>/</span> {selectedMissionSite.mission.toUpperCase()} <span>/</span> {selectedMissionSite.focusLabel.toUpperCase()}</div>
-        <div className="top-status"><span className={`status-dot ${status === 'OK' ? 'online' : 'offline'}`} /> API {status} <span className="top-divider" /> <span className="mono">BUILD 0.4.0</span></div>
+        <div className="top-status"><span className={`status-dot ${status === 'OK' ? 'online' : 'offline'}`} /> API {status === 'OK' ? 'CONNECTED' : 'OFFLINE'} <span className="top-divider" /> <span className="mono">BUILD 0.4.0</span></div>
       </header>
 
       <main className="workspace grid min-h-0 gap-3 p-3 xl:grid-cols-[260px_minmax(0,1fr)_320px]">
@@ -719,7 +719,7 @@ export default function App() {
             <div className="workspace-guide-copy">
               <span className="workspace-guide-kicker">QUICK START</span>
               <strong>Build your first Mars traverse</strong>
-              <p>Choose a mission site, set a start and destination, then generate route options. Use DATA to inspect or import source data; JEV Intel can tune Route B preferences.</p>
+              <p>Choose a mission site, set points A and B, then generate route alternatives. For scientific use, load a georeferenced Mars DEM first; without one, treat terrain and route metrics as illustrative. Use Data Sources for provenance and JEV Advisor to review Route B preferences.</p>
             </div>
             <ol className="workspace-guide-steps">
               <li><span>01</span> Choose a site</li>
@@ -729,7 +729,7 @@ export default function App() {
           </section>
         )}
         <section className="left-rail min-w-0" data-tour-active={tourStep === 3 || undefined}>
-          <div className="rail-head"><span className="eyebrow">MISSION AREA</span><span className="live-chip">{terrainLoading ? 'LOADING' : terrain ? 'REAL DEM' : 'NO REAL DEM'}</span></div>
+          <div className="rail-head"><span className="eyebrow">MISSION AREA</span><span className="live-chip">{terrainLoading ? 'LOADING TERRAIN' : terrain && isVerifiedRealTerrain(terrain, selectedMissionSiteId) ? 'VERIFIED DEM' : terrain ? 'ILLUSTRATIVE GRID' : 'NO TERRAIN'}</span></div>
           <div className="location-card mission-site-card">
             <div className="planet-glyph">♂</div>
             <div className="location-copy mission-site-copy">
@@ -991,7 +991,7 @@ export default function App() {
             {terrain && <div className="inspector-map-hint"><span className="inspector-crosshair">⌖</span> CLICK TERRAIN TO INSPECT</div>}
             {terrainLoading && <div className="terrain-loading-state"><span className="spinner" /> LOADING {selectedMissionSite.region.toUpperCase()} TERRAIN</div>}
             {!terrain && !terrainLoading && <div className="terrain-loading-state terrain-error-state"><b>TERRAIN UNAVAILABLE</b><span>{error || `Could not load a terrain grid for ${selectedMissionSite.region}.`}</span></div>}
-            <div className="scene-top-left"><span className="scene-tag"><i /> TERRAIN MODEL</span><span className="scene-tag muted">{'IMPORTED / GEOREFERENCED DEM'}</span></div>
+            <div className="scene-top-left"><span className="scene-tag"><i /> TERRAIN MODEL</span><span className="scene-tag muted">{terrain ? (isVerifiedRealTerrain(terrain, selectedMissionSiteId) ? 'VERIFIED / GEOREFERENCED DEM' : 'ILLUSTRATIVE GRID / NOT VERIFIED') : 'AWAITING TERRAIN DATA'}</span></div>
             <div className="scene-top-right"><span className="compass">N</span><span className="compass-line" /></div>
             <div className="scene-bottom-left"><span>GRID CELL <b>{terrain?.cell_size_m?.toFixed(1) ?? '8.0'} m</b></span><span className="scene-vertical-note">VERTICAL EXAGGERATION <b>5×</b></span></div>
             <div className="scene-bottom-right"><span className="view-caption">{viewMode === '3D' ? 'OBLIQUE VIEW' : 'PLAN VIEW'}</span><span className="zoom-hint">DRAG TO ORBIT · SCROLL TO ZOOM</span></div>
@@ -1035,7 +1035,7 @@ export default function App() {
               })}
             </div>
             <div className="layer-metadata">
-              <span>SOURCE <b>{'Catalogued official Mars DEM'}</b></span>
+              <span>SOURCE <b>{terrain && isVerifiedRealTerrain(terrain, selectedMissionSiteId) ? 'Verified NASA / user DEM' : 'Not verified as measured terrain'}</b></span>
               <span>GRID SPACING <b>{terrain?.cell_size_m?.toFixed(1) ?? 8} m</b></span>
               <span>AVAILABLE LAYERS <b>{(terrain?.available_layers ?? []).join(', ') || 'Unspecified'}</b></span>
             </div>
@@ -1244,12 +1244,12 @@ export default function App() {
         </section>
 
         <aside className="right-rail min-w-0">
-          <div className="right-tabs">
-            <button className={activeTab === 'planner' ? 'active' : ''} onClick={() => setActiveTab('planner')}>ANALYTICS</button>
-            <button className={activeTab === 'inspect' ? 'active' : ''} onClick={() => setActiveTab('inspect')} title="Inspect a selected terrain cell">INSPECT</button>
-            <button className={activeTab === 'science' ? 'active' : ''} data-tour-active={tourStep === 5 || undefined} onClick={() => setActiveTab('science')}>SCIENCE</button>
-            <button className={activeTab === 'jev' ? 'active' : ''} data-tour-active={tourStep === 4 || undefined} onClick={() => setActiveTab('jev')}>JEV INTEL</button>
-            <button className={`data-launch ${dataMenuOpen ? 'active' : ''}`} onClick={() => setDataMenuOpen(true)} aria-haspopup="dialog" aria-expanded={dataMenuOpen}>DATA <span className="data-launch-glyph">↗</span></button>
+          <div className="right-tabs" aria-label="Workspace tools">
+            <button className={activeTab === 'planner' ? 'active' : ''} onClick={() => setActiveTab('planner')}>ROUTE SUMMARY</button>
+            <button className={activeTab === 'inspect' ? 'active' : ''} onClick={() => setActiveTab('inspect')} title="Inspect a selected terrain cell">CELL DETAILS</button>
+            <button className={activeTab === 'science' ? 'active' : ''} data-tour-active={tourStep === 5 || undefined} onClick={() => setActiveTab('science')}>SCIENCE TARGETS</button>
+            <button className={activeTab === 'jev' ? 'active' : ''} data-tour-active={tourStep === 4 || undefined} onClick={() => setActiveTab('jev')}>JEV ADVISOR</button>
+            <button className={`data-launch ${dataMenuOpen ? 'active' : ''}`} onClick={() => setDataMenuOpen(true)} aria-haspopup="dialog" aria-expanded={dataMenuOpen}>DATA SOURCES <span className="data-launch-glyph">↗</span></button>
           </div>
           {activeTab === 'planner' && selected && <div className="analytics-content">
             <div className="analytics-head"><span className="eyebrow">SELECTED PROFILE</span><div className="selected-title"><span className={`route-letter route-${selected.id}`}>{selected.id}</span><h3>{selected.name}</h3></div></div>

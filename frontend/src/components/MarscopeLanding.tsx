@@ -6,9 +6,9 @@ type Props = {
 };
 
 const capabilities = [
-  { number: "01", title: "Planetary data", copy: "Discover, inspect and import source-aware Mars datasets with provenance carried into the workspace." },
-  { number: "02", title: "Mission planning", copy: "Compare multi-objective traverses against the currently loaded, verified terrain grid." },
-  { number: "03", title: "Surface operations", copy: "Explore terrain in 2D and 3D, review science targets and step through a simulated EVA." },
+  { number: "01", title: "Planetary data", copy: "Browse and import Mars datasets while keeping their source, coverage and resolution visible." },
+  { number: "02", title: "Mission planning", copy: "Compare route alternatives across distance, time, terrain risk and the mission limits you set." },
+  { number: "03", title: "Surface operations", copy: "Switch between 2D and 3D terrain, inspect science targets and review a simulated EVA." },
 ];
 
 export default function MarscopeLanding({ onEnterWorkspace, onStartTour, apiStatus, terrainAvailable }: Props) {
@@ -41,8 +41,8 @@ export default function MarscopeLanding({ onEnterWorkspace, onStartTour, apiStat
             <button className="landing-secondary" onClick={onStartTour}>EXPLORE THE SYSTEM <span>→</span></button>
           </div>
           <div className="landing-proof">
-            <div><b>02D / 03D</b><span>TERRAIN EXPLORATION</span></div>
-            <div><b>MOO*</b><span>ROUTE COMPARISON</span></div>
+            <div><b>2D / 3D</b><span>TERRAIN EXPLORATION</span></div>
+            <div><b>A / B / C</b><span>ROUTE ALTERNATIVES</span></div>
             <div><b>EVA</b><span>SIMULATED NAVIGATION</span></div>
           </div>
         </div>
@@ -54,9 +54,9 @@ export default function MarscopeLanding({ onEnterWorkspace, onStartTour, apiStat
             <div className="landing-planet-shade" />
             <div className="landing-contours" />
             <div className="landing-surface-grid" />
-            <div className="landing-site-pin"><i /><span>FIELD SITE / A-01</span></div>
+            <div className="landing-site-pin"><i /><span>MISSION SITE / ACTIVE</span></div>
           </div>
-          <div className="landing-coordinate landing-coordinate-top"><span>MISSION REGION</span><b>ARSIA / MARS</b></div>
+          <div className="landing-coordinate landing-coordinate-top"><span>MISSION REGION</span><b>MARS / MISSION SITE</b></div>
           <div className="landing-coordinate landing-coordinate-bottom"><span>DATA MODE</span><b>RESEARCH · SOURCE-AWARE</b></div>
           <div className="landing-visual-crosshair">N <span>↑</span></div>
         </div>
