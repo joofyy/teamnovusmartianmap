@@ -622,7 +622,7 @@ export default function App() {
     if (!plan || !selectedPath.length) return;
     const previous = lastRecordedEvaProgressRef.current;
     if (previous.planId !== plan.plan_id || previous.routeId !== selectedRoute) {
-      lastRecordedEvaProgressRef.current = { planId: plan.plan_id, routeId: selectedRoute, index: evaIndex };
+      lastRecordedEvaProgressRef.current = { planId: plan.plan_id, routeId: selectedRoute, index: 0 };
       return;
     }
     if (previous.index === evaIndex) return;
