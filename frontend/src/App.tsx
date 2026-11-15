@@ -7,8 +7,8 @@ import { DEFAULT_MISSION_SITE_ID, MISSION_SITES } from './missionSites';
 import type { BenchmarkResult, OfficialSource, OfflineStatus, PlanResponse, Point, ReplanResponse, Route, TerrainData } from './types';
 
 type Layer = 'elevation' | 'slope' | 'roughness' | 'regolith' | 'temperature' | 'environment' | 'radiation' | 'uncertainty' | 'science';
-const INITIAL_START: Point = { x: 4, y: 5 };
-const INITIAL_GOAL: Point = { x: 59, y: 56 };
+const INITIAL_START: Point = { x: 34, y: 42 };
+const INITIAL_GOAL: Point = { x: 55, y: 53 };
 const EMPTY_PATH: Point[] = [];
 
 const layerNames: { id: Layer; name: string; unit: string }[] = [
@@ -66,6 +66,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'planner' | 'science' | 'data'>('planner');
   const [maxSlope, setMaxSlope] = useState(22);
   const [evaMinutes, setEvaMinutes] = useState(180);
+  const [energyBudgetWh, setEnergyBudgetWh] = useState(180);
   const [oxygenBudget, setOxygenBudget] = useState(1200);
   const [oxygenRate, setOxygenRate] = useState(1.0);
   const [equipmentMass, setEquipmentMass] = useState(12.5);
@@ -159,7 +160,7 @@ export default function App() {
         max_slope_deg: maxSlope,
         max_temperature_c: -35,
         eva_limit_minutes: evaMinutes,
-        energy_budget_wh: 180,
+        energy_budget_wh: energyBudgetWh,
         return_reserve_fraction: 0.25,
         suit_mass_kg: 42,
         carried_equipment_mass_kg: equipmentMass,
@@ -188,7 +189,7 @@ export default function App() {
     } finally {
       setPlanning(false);
     }
-  }, [selectedMissionSiteId, terrain, start, goal, maxSlope, evaMinutes, oxygenBudget, oxygenRate, restInterval, equipmentMass, sciencePriority, riskAversion, uncertaintyAversion]);
+  }, [selectedMissionSiteId, terrain, start, goal, maxSlope, evaMinutes, oxygenBudget, oxygenRate, restInterval, equipmentMass, energyBudgetWh, sciencePriority, riskAversion, uncertaintyAversion]);
 
   useEffect(() => {
     if (terrain && terrain.site_id === selectedMissionSiteId && !terrainLoading && !plan && !planning && !error) void runPlan();
@@ -212,7 +213,7 @@ export default function App() {
     try {
       const result = await api.benchmark(selectedMissionSiteId, start, goal, {
         max_slope_deg: maxSlope, max_temperature_c: -35, eva_limit_minutes: evaMinutes,
-        energy_budget_wh: 180, return_reserve_fraction: 0.25, suit_mass_kg: 42, carried_equipment_mass_kg: equipmentMass, base_speed_mps: 0.65,
+        energy_budget_wh: energyBudgetWh, return_reserve_fraction: 0.25, suit_mass_kg: 42, carried_equipment_mass_kg: equipmentMass, base_speed_mps: 0.65,
         oxygen_budget_l: oxygenBudget, oxygen_consumption_lpm: oxygenRate,
         rest_interval_min: restInterval, rest_duration_min: 5,
         objective_weight_multipliers: {
@@ -337,7 +338,7 @@ export default function App() {
           <div><div className="brand-name">MARSCOPE</div><div className="brand-tag">FROM ORBIT TO BOOTPRINT</div></div>
         </div>
         <div className="mission-crumb"><span className="crumb-dot" /> {selectedMissionSite.region.toUpperCase()} <span>/</span> {selectedMissionSite.mission.toUpperCase()} <span>/</span> {selectedMissionSite.focusLabel.toUpperCase()}</div>
-        <div className="top-status"><span className={`status-dot ${status === 'OK' ? 'online' : 'offline'}`} /> API {status} <span className="top-divider" /> <span className="mono">BUILD 0.3.1</span></div>
+        <div className="top-status"><span className={`status-dot ${status === 'OK' ? 'online' : 'offline'}`} /> API {status} <span className="top-divider" /> <span className="mono">BUILD 0.4.0</span></div>
       </header>
 
       <main className="workspace">
@@ -382,6 +383,7 @@ export default function App() {
             <div className="section-kicker">OPERATIONAL CONSTRAINTS</div>
             <div className="slider-row"><div><label>Maximum slope</label><b>{maxSlope}°</b></div><input type="range" min="10" max="35" value={maxSlope} onChange={(e) => setMaxSlope(Number(e.target.value))} /></div>
             <div className="slider-row"><div><label>EVA time budget</label><b>{evaMinutes} min</b></div><input type="range" min="60" max="300" step="15" value={evaMinutes} onChange={(e) => setEvaMinutes(Number(e.target.value))} /></div>
+            <div className="slider-row"><div><label>Energy budget</label><b>{energyBudgetWh} Wh</b></div><input type="range" min="100" max="1000" step="25" value={energyBudgetWh} onChange={(e) => setEnergyBudgetWh(Number(e.target.value))} /></div>
             <div className="slider-row"><div><label>Oxygen budget</label><b>{oxygenBudget} L</b></div><input type="range" min="400" max="3000" step="100" value={oxygenBudget} onChange={(e) => setOxygenBudget(Number(e.target.value))} /></div>
             <div className="slider-row"><div><label>Oxygen consumption assumption</label><b>{oxygenRate.toFixed(1)} L/min</b></div><input type="range" min="0.3" max="3" step="0.1" value={oxygenRate} onChange={(e) => setOxygenRate(Number(e.target.value))} /></div>
             <div className="slider-row"><div><label>Rest interval</label><b>{restInterval} min</b></div><input type="range" min="30" max="120" step="15" value={restInterval} onChange={(e) => setRestInterval(Number(e.target.value))} /></div>
@@ -395,7 +397,7 @@ export default function App() {
           <button className="primary-button" onClick={() => void runPlan()} disabled={planning || terrainLoading || !terrain || terrain.site_id !== selectedMissionSiteId}>
             {planning ? <><span className="spinner" /> COMPUTING ROUTES</> : <><span>⌁</span> GENERATE ROUTE OPTIONS</>}
           </button>
-          <button className="ghost-button" onClick={() => { const a = { x: Math.max(1, Math.floor((terrain?.width ?? 64) * 0.07)), y: Math.max(1, Math.floor((terrain?.height ?? 64) * 0.08)) }; const b = { x: Math.max(2, Math.floor((terrain?.width ?? 64) * 0.92)), y: Math.max(2, Math.floor((terrain?.height ?? 64) * 0.90)) }; setStart(a); setGoal(b); void runPlan(a, b); }}>RESET MISSION GEOMETRY</button>
+          <button className="ghost-button" onClick={() => { const a = INITIAL_START; const b = INITIAL_GOAL; setStart(a); setGoal(b); void runPlan(a, b); }}>RESET MISSION GEOMETRY</button>
 
           <div className="rail-footnote"><span className="warning-icon">!</span><p>Research prototype only. Never use these paths as operational astronaut guidance.</p></div>
         </section>
@@ -438,7 +440,7 @@ export default function App() {
                 <div className="eva-stat"><span>RETURN TRACE TO BASE</span><strong>{returnDistanceM.toFixed(1)} m</strong><small>{pointText(evaPosition)} → {pointText(start)} · dashed on map</small></div>
                 <div className="eva-stat"><span>ESTIMATED EVA CLOCK AVAILABLE</span><strong>{remainingEVAClockMin.toFixed(1)} min</strong><small>{elapsedOutboundMin.toFixed(1)} min modeled outbound elapsed</small></div>
                 <div className="eva-stat"><span>TIME TO DESTINATION + RETURN</span><strong>{remainingPlanMin.toFixed(1)} min</strong><small>Remaining outbound + full return leg estimate</small></div>
-                <div className="eva-stat"><span>ENERGY REMAINING FOR PLAN</span><strong>{Math.max(0, 180 - elapsedEnergyWh).toFixed(1)} Wh</strong><small>{remainingPlanEnergyWh.toFixed(1)} Wh estimated to destination + return</small></div>
+                <div className="eva-stat"><span>ENERGY REMAINING FOR PLAN</span><strong>{Math.max(0, energyBudgetWh - elapsedEnergyWh).toFixed(1)} Wh</strong><small>{remainingPlanEnergyWh.toFixed(1)} Wh estimated to destination + return</small></div>
                 <div className="eva-stat"><span>OXYGEN REMAINING FOR PLAN</span><strong>{Math.max(0, oxygenBudget - elapsedOxygenL).toFixed(1)} L</strong><small>{remainingPlanOxygenL.toFixed(1)} L estimated to destination + return</small></div>
                 <div className="eva-stat"><span>PLAN RETURN RESERVE CHECK</span><strong className={selected?.metrics.return_feasible ? 'good' : 'bad'}>{selected?.metrics.return_feasible ? 'WITHIN MODEL BUDGET' : 'REVIEW MODEL LIMITS'}</strong><small>Computed at route-planning time; not a live safety certification</small></div>
                 <div className="eva-stat"><span>OFFLINE REVIEW CACHE</span><strong>{offlineStatus ? `${offlineStatus.package_count} PACKAGES` : 'STATUS UNAVAILABLE'}</strong><small>{offlineStatus ? `${offlineStatus.tile_count} rendered tiles cached` : 'Open the DATA panel to inspect cache status'}</small></div>
@@ -489,7 +491,7 @@ export default function App() {
 
           {activeTab === 'science' && <ScienceAssistant missionSite={selectedMissionSite} />}
 
-          {activeTab === 'data' && <DataExplorer missionSite={selectedMissionSite} terrainLoaded={Boolean(terrain && isVerifiedRealTerrain(terrain, selectedMissionSiteId))} sources={datasets} planId={plan?.plan_id} onTerrainImported={(nextTerrain) => { if (!isVerifiedRealTerrain(nextTerrain, selectedMissionSiteId)) { setError('Import rejected: the backend did not verify a real Mars DEM covering this selected site.'); return; } setTerrain(nextTerrain); setPlan(null); setRoutes([]); setBenchmarkResults([]); setError(''); setConditionNotice(''); setLayer('elevation'); const nextStart = { x: 4, y: 5 }; const nextGoal = { x: nextTerrain.width - 5, y: nextTerrain.height - 8 }; setStart(nextStart); setGoal(nextGoal); }} />}
+          {activeTab === 'data' && <DataExplorer missionSite={selectedMissionSite} terrainLoaded={Boolean(terrain && isVerifiedRealTerrain(terrain, selectedMissionSiteId))} sources={datasets} planId={plan?.plan_id} onTerrainImported={(nextTerrain) => { if (!isVerifiedRealTerrain(nextTerrain, selectedMissionSiteId)) { setError('Import rejected: the backend did not verify a real Mars DEM covering this selected site.'); return; } setTerrain(nextTerrain); setPlan(null); setRoutes([]); setBenchmarkResults([]); setError(''); setConditionNotice(''); setLayer('elevation'); const nextStart = INITIAL_START; const nextGoal = INITIAL_GOAL; setStart(nextStart); setGoal(nextGoal); }} />}
         </aside>
       </main>
       <footer className="app-footer"><span>© MARSCOPE RESEARCH PROTOTYPE</span><span>DATA STATUS: {terrain ? 'IMPORTED MARS DEM · SOURCE HASHED' : 'NO REAL DEM LOADED'}</span><span>NOT FOR OPERATIONAL USE</span></footer>
