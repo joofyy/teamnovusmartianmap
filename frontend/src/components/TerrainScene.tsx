@@ -26,6 +26,8 @@ type Props = {
   deviationPoint?: Point | null;
   scientificTargets?: Target[];
   selectedScientificTargetIds?: string[];
+  selectedCell?: Point | null;
+  onInspect?: (point: Point) => void;
 };
 
 type Latest = Omit<Props, 'terrain'>;
@@ -80,12 +82,14 @@ export default function TerrainScene(props: Props) {
     goal: props.goal, obstacles: props.obstacles, layer: props.layer,
     viewMode: props.viewMode, pickMode: props.pickMode, evaPosition: props.evaPosition,
     returnPath: props.returnPath, onPick: props.onPick,
+    selectedCell: props.selectedCell, onInspect: props.onInspect,
   });
   latestRef.current = {
     routes: props.routes, selectedRoute: props.selectedRoute, start: props.start,
     goal: props.goal, obstacles: props.obstacles, layer: props.layer,
     viewMode: props.viewMode, pickMode: props.pickMode, evaPosition: props.evaPosition,
     returnPath: props.returnPath, onPick: props.onPick,
+    selectedCell: props.selectedCell, onInspect: props.onInspect,
   };
 
   useEffect(() => {
@@ -168,20 +172,42 @@ export default function TerrainScene(props: Props) {
     controls.maxPolarAngle = Math.PI * 0.48;
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
-    const handleClick = (event: MouseEvent) => {
+    let pointerStart: { x: number; y: number; id: number } | null = null;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      pointerStart = { x: event.clientX, y: event.clientY, id: event.pointerId };
+    };
+    const handlePointerUp = (event: PointerEvent) => {
+      const startPoint = pointerStart;
+      pointerStart = null;
+      if (!startPoint || startPoint.id !== event.pointerId) return;
+      // OrbitControls owns drags. Only a short, stationary press is a cell pick.
+      if (Math.hypot(event.clientX - startPoint.x, event.clientY - startPoint.y) > 6) return;
       const state = latestRef.current;
-      if (!state.pickMode) return;
       const rect = renderer.domElement.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
       pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.setFromCamera(pointer, camera);
-      const hit = raycaster.intersectObject(mesh, false)[0];
-      if (!hit) return;
-      const gx = Math.round(hit.point.x + width / 2);
-      const gy = Math.round(hit.point.y + height / 2);
-      if (gx >= 0 && gx < width && gy >= 0 && gy < height) state.onPick({ x: gx, y: gy });
+
+      // Prefer the actual DEM surface. If a NoData hole has no triangles, fall
+      // back to the map's XY footprint so the invalid grid sample remains inspectable.
+      const surfaceHit = raycaster.intersectObject(mesh, false)[0]?.point.clone();
+      const mapHit = surfaceHit ?? raycaster.ray.intersectPlane(
+        new THREE.Plane(new THREE.Vector3(0, 0, 1), 0),
+        new THREE.Vector3(),
+      );
+      if (!mapHit) return;
+      const localHit = mesh.worldToLocal(mapHit.clone());
+      const gx = Math.round(localHit.x + width / 2);
+      const gy = Math.round(localHit.y + height / 2);
+      if (gx < 0 || gx >= width || gy < 0 || gy >= height) return;
+      const selected = { x: gx, y: gy };
+      if (state.pickMode) state.onPick(selected);
+      else state.onInspect?.(selected);
     };
-    renderer.domElement.addEventListener('click', handleClick);
+    renderer.domElement.addEventListener('pointerdown', handlePointerDown);
+    renderer.domElement.addEventListener('pointerup', handlePointerUp);
 
     sceneRef.current = scene;
     cameraRef.current = camera;
@@ -208,7 +234,8 @@ export default function TerrainScene(props: Props) {
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener('resize', resize);
-      renderer.domElement.removeEventListener('click', handleClick);
+      renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
+      renderer.domElement.removeEventListener('pointerup', handlePointerUp);
       controls.dispose();
       geometry.dispose();
       material.dispose();
@@ -344,6 +371,35 @@ export default function TerrainScene(props: Props) {
       addSphere(props.deviationPoint, '#f7df72', 1.7, 4.5);
     }
 
+    // Persistent selected-cell reticle. The marker is tied to the same DEM
+    // vertex/grid coordinate used by the inspector readout.
+    if (props.selectedCell
+      && props.selectedCell.x >= 0 && props.selectedCell.x < width
+      && props.selectedCell.y >= 0 && props.selectedCell.y < height) {
+      const selectedPosition = world(props.selectedCell);
+      const ringGeometry = new THREE.RingGeometry(0.42, 0.55, 40);
+      const ringMaterial = new THREE.MeshBasicMaterial({
+        color: '#8fe8e6', transparent: true, opacity: 0.95,
+        side: THREE.DoubleSide, depthTest: false,
+      });
+      const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+      ring.position.copy(selectedPosition);
+      ring.position.z += 2.6;
+      ring.renderOrder = 20;
+      overlay.add(ring);
+
+      const stemGeometry = new THREE.BufferGeometry().setFromPoints([
+        selectedPosition.clone().setZ(selectedPosition.z + 2.8),
+        selectedPosition.clone().setZ(selectedPosition.z + 7.2),
+      ]);
+      const stemMaterial = new THREE.LineBasicMaterial({
+        color: '#b7f5e9', transparent: true, opacity: 0.82, depthTest: false,
+      });
+      const stem = new THREE.Line(stemGeometry, stemMaterial);
+      stem.renderOrder = 21;
+      overlay.add(stem);
+    }
+
     const camera = cameraRef.current;
     const controls = controlsRef.current;
     if (camera && controls) {
@@ -374,6 +430,7 @@ export default function TerrainScene(props: Props) {
     props.deviationPoint,
     props.scientificTargets,
     props.selectedScientificTargetIds,
+    props.selectedCell,
   ]);
 
   return <div className="terrain-canvas" ref={mountRef} aria-label="Interactive 3D terrain model derived from an imported Mars DEM. Drag to orbit, scroll to zoom, click to set route points." />;

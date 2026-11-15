@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import TerrainScene from './components/TerrainScene';
+import ScientificTerrainInspector from './components/ScientificTerrainInspector';
 import DataExplorer from './components/DataExplorer';
 import DecisionCenter from './components/DecisionCenter';
 import RouteProfileChart from './components/RouteProfileChart';
@@ -13,6 +14,8 @@ import RouteRobustnessPanel from './components/RouteRobustnessPanel';
 import AstronautHud from './components/AstronautHud';
 import MarscopeLanding from './components/MarscopeLanding';
 import GuidedTour from './components/GuidedTour';
+import CoordinateInputDialog, { CoordinateTargetType } from './components/CoordinateInputDialog';
+import { gridToGeo } from './utils/coordinates';
 import { api } from './api';
 import { DEFAULT_MISSION_SITE_ID, MISSION_SITES } from './missionSites';
 import type { BenchmarkResult, JevPathfindingWeights, JevProvider, MissionEvent, MissionConstraintsPayload, OfficialSource, OfflineStatus, PlanResponse, Point, ReplanResponse, Route, Target, TerrainData } from './types';
@@ -82,8 +85,9 @@ export default function App() {
   const [layer, setLayer] = useState<Layer>('elevation');
   const [viewMode, setViewMode] = useState<'3D' | '2D'>('3D');
   const [pickMode, setPickMode] = useState<'start' | 'goal' | 'waypoint' | null>(null);
+  const [inspectedCell, setInspectedCell] = useState<Point | null>(null);
   const [evaMode, setEvaMode] = useState(false);
-  const [activeTab, setActiveTab] = useState<'planner' | 'jev' | 'science'>('planner');
+  const [activeTab, setActiveTab] = useState<'planner' | 'jev' | 'science' | 'inspect'>('planner');
   const [dataMenuOpen, setDataMenuOpen] = useState(false);
   const [workspaceEntered, setWorkspaceEntered] = useState(false);
   const [tourStep, setTourStep] = useState<number | null>(null);
@@ -128,6 +132,11 @@ export default function App() {
   const [jevLoading, setJevLoading] = useState(false);
   const [jevError, setJevError] = useState('');
   const [jevNotice, setJevNotice] = useState('');
+
+  // Coordinate Input Dialog state for Astronaut manual entry
+  const [coordDialogOpen, setCoordDialogOpen] = useState<boolean>(false);
+  const [coordDialogTarget, setCoordDialogTarget] = useState<CoordinateTargetType>('start');
+  const [coordDialogWpIdx, setCoordDialogWpIdx] = useState<number | undefined>(undefined);
 
   const selectedMissionSite = MISSION_SITES.find((site) => site.id === selectedMissionSiteId) ?? MISSION_SITES[0];
   const hasAtmosphere = (terrain?.available_layers ?? []).includes('atmosphere');
@@ -223,6 +232,8 @@ export default function App() {
     activeMissionSiteIdRef.current = siteId;
     setTerrainLoading(true);
     setTerrain(null);
+    setInspectedCell(null);
+    setActiveTab('planner');
     setPlan(null);
     setRoutes([]);
     setWaypoints([]);
@@ -404,6 +415,12 @@ export default function App() {
     setSelectedMissionSiteId(siteId);
   };
 
+  const handleInspect = useCallback((point: Point) => {
+    if (!terrain || !isVerifiedRealTerrain(terrain, selectedMissionSiteId)) return;
+    setInspectedCell(point);
+    setActiveTab('inspect');
+  }, [terrain, selectedMissionSiteId]);
+
   const handlePick = useCallback((point: Point) => {
     if (!terrain) return;
     if (pickMode === 'start') setStart(point);
@@ -417,6 +434,46 @@ export default function App() {
     }
     setPickMode(null);
   }, [pickMode, terrain, waypoints, start, goal, runPlan]);
+
+  const openCoordinateDialog = useCallback((targetType: CoordinateTargetType, wpIndex?: number) => {
+    setCoordDialogTarget(targetType);
+    setCoordDialogWpIdx(wpIndex);
+    setCoordDialogOpen(true);
+    setPickMode(null);
+  }, []);
+
+  const handleCoordinateConfirm = useCallback((point: Point, targetType: CoordinateTargetType, wpIndex?: number) => {
+    if (targetType === 'start') {
+      setStart(point);
+      void runPlan(point, goal, waypoints);
+    } else if (targetType === 'goal') {
+      setGoal(point);
+      void runPlan(start, point, waypoints);
+    } else if (targetType === 'new-waypoint') {
+      if (waypoints.length < 5) {
+        const nextWp = [...waypoints, point];
+        setWaypoints(nextWp);
+        void runPlan(start, goal, nextWp);
+      }
+    } else if (targetType === 'edit-waypoint' && wpIndex !== undefined) {
+      const nextWp = waypoints.map((w, idx) => (idx === wpIndex ? point : w));
+      setWaypoints(nextWp);
+      void runPlan(start, goal, nextWp);
+    }
+  }, [goal, start, waypoints, runPlan]);
+
+  const coordDialogInitialPoint = useMemo(() => {
+    if (coordDialogTarget === 'start') return start;
+    if (coordDialogTarget === 'goal') return goal;
+    if (coordDialogTarget === 'edit-waypoint' && coordDialogWpIdx !== undefined) {
+      return waypoints[coordDialogWpIdx] ?? null;
+    }
+    const prev = waypoints.length ? waypoints[waypoints.length - 1] : start;
+    return {
+      x: Math.round((prev.x + goal.x) / 2),
+      y: Math.round((prev.y + goal.y) / 2),
+    };
+  }, [coordDialogTarget, coordDialogWpIdx, start, goal, waypoints]);
 
   // Start and Goal traversability validation
   const startSlope = terrain && terrain.slope_deg[start.y]?.[start.x];
@@ -688,8 +745,37 @@ export default function App() {
 
           <div className="section-kicker">MISSION PLANNING</div>
           <div className="field-stack">
-            <div className="field-label"><span>01 / START POINT</span><button className={`tiny-action ${pickMode === 'start' ? 'active' : ''}`} onClick={() => setPickMode(pickMode === 'start' ? null : 'start')}>PICK ON MAP</button></div>
-            <div className="coord-card"><span className="point-symbol start-symbol">A</span><div><b>{pointText(start)}</b><small>Grid reference · imported DEM</small></div></div>
+            <div className="field-label">
+              <span>01 / START POINT</span>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button
+                  type="button"
+                  className="tiny-action"
+                  onClick={() => openCoordinateDialog('start')}
+                  title="Enter grid or latitude/longitude coordinates"
+                >
+                  ENTER COORD
+                </button>
+                <button
+                  type="button"
+                  className={`tiny-action ${pickMode === 'start' ? 'active' : ''}`}
+                  onClick={() => setPickMode(pickMode === 'start' ? null : 'start')}
+                >
+                  PICK ON MAP
+                </button>
+              </div>
+            </div>
+            <div
+              className="coord-card coord-card-interactive"
+              onClick={() => openCoordinateDialog('start')}
+              title="Click to edit start coordinates (Grid or Lat/Lon)"
+            >
+              <span className="point-symbol start-symbol">A</span>
+              <div>
+                <b>{pointText(start)}</b>
+                <small>{gridToGeo(start, terrain, selectedMissionSite).formattedLat} · {gridToGeo(start, terrain, selectedMissionSite).formattedLon}</small>
+              </div>
+            </div>
             {(startBlocked || startSteep) && (
               <div className="start-goal-alert">
                 <span>⚠ Start point is on {startBlocked ? 'an untraversable/obstacle cell' : `steep terrain (${startSlope?.toFixed(1)}° > ${maxSlope}°)`}.</span>
@@ -702,37 +788,108 @@ export default function App() {
               <div className="field-label">
                 <span>INTERMEDIATE TARGETS ({waypoints.length}/5)</span>
                 {waypoints.length < 5 && (
-                  <button className={`tiny-action ${pickMode === 'waypoint' ? 'active' : ''}`} onClick={() => setPickMode(pickMode === 'waypoint' ? null : 'waypoint')}>
-                    {pickMode === 'waypoint' ? 'CLICK TERRAIN' : '+ ADD WAYPOINT'}
-                  </button>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button
+                      type="button"
+                      className="tiny-action"
+                      onClick={() => openCoordinateDialog('new-waypoint')}
+                      title="Add waypoint by coordinates or latitude/longitude"
+                    >
+                      + COORD
+                    </button>
+                    <button
+                      type="button"
+                      className={`tiny-action ${pickMode === 'waypoint' ? 'active' : ''}`}
+                      onClick={() => setPickMode(pickMode === 'waypoint' ? null : 'waypoint')}
+                    >
+                      {pickMode === 'waypoint' ? 'CLICK TERRAIN' : '+ PICK'}
+                    </button>
+                  </div>
                 )}
               </div>
               {waypoints.length > 0 && (
                 <div className="waypoint-list">
-                  {waypoints.map((wp, idx) => (
-                    <div key={`wp-${idx}`} className="waypoint-item">
-                      <span>W{idx + 1}: {pointText(wp)}</span>
-                      <button
-                        onClick={() => {
-                          const nextWp = waypoints.filter((_, i) => i !== idx);
-                          setWaypoints(nextWp);
-                          void runPlan(start, goal, nextWp);
-                        }}
-                        title="Remove waypoint"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
-                  <button className="tiny-action" style={{ alignSelf: 'flex-start', marginTop: 4 }} onClick={() => { setWaypoints([]); void runPlan(start, goal, []); }}>
+                  {waypoints.map((wp, idx) => {
+                    const wpGeo = gridToGeo(wp, terrain, selectedMissionSite);
+                    return (
+                      <div key={`wp-${idx}`} className="waypoint-item">
+                        <div
+                          className="waypoint-info"
+                          style={{ cursor: 'pointer' }}
+                          onClick={() => openCoordinateDialog('edit-waypoint', idx)}
+                          title="Click to edit coordinates"
+                        >
+                          <span>W{idx + 1}: {pointText(wp)}</span>
+                          <small>{wpGeo.formattedLat} · {wpGeo.formattedLon}</small>
+                        </div>
+                        <div className="waypoint-actions">
+                          <button
+                            type="button"
+                            className="btn-edit"
+                            onClick={() => openCoordinateDialog('edit-waypoint', idx)}
+                            title="Edit coordinates"
+                          >
+                            ✎
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-remove"
+                            onClick={() => {
+                              const nextWp = waypoints.filter((_, i) => i !== idx);
+                              setWaypoints(nextWp);
+                              void runPlan(start, goal, nextWp);
+                            }}
+                            title="Remove waypoint"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    className="tiny-action"
+                    style={{ alignSelf: 'flex-start', marginTop: 4 }}
+                    onClick={() => { setWaypoints([]); void runPlan(start, goal, []); }}
+                  >
                     CLEAR ALL WAYPOINTS
                   </button>
                 </div>
               )}
             </div>
 
-            <div className="field-label"><span>02 / DESTINATION</span><button className={`tiny-action ${pickMode === 'goal' ? 'active' : ''}`} onClick={() => setPickMode(pickMode === 'goal' ? null : 'goal')}>PICK ON MAP</button></div>
-            <div className="coord-card"><span className="point-symbol goal-symbol">B</span><div><b>{pointText(goal)}</b><small>Grid reference · imported DEM</small></div></div>
+            <div className="field-label">
+              <span>02 / DESTINATION</span>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button
+                  type="button"
+                  className="tiny-action"
+                  onClick={() => openCoordinateDialog('goal')}
+                  title="Enter grid or latitude/longitude coordinates"
+                >
+                  ENTER COORD
+                </button>
+                <button
+                  type="button"
+                  className={`tiny-action ${pickMode === 'goal' ? 'active' : ''}`}
+                  onClick={() => setPickMode(pickMode === 'goal' ? null : 'goal')}
+                >
+                  PICK ON MAP
+                </button>
+              </div>
+            </div>
+            <div
+              className="coord-card coord-card-interactive"
+              onClick={() => openCoordinateDialog('goal')}
+              title="Click to edit destination coordinates (Grid or Lat/Lon)"
+            >
+              <span className="point-symbol goal-symbol">B</span>
+              <div>
+                <b>{pointText(goal)}</b>
+                <small>{gridToGeo(goal, terrain, selectedMissionSite).formattedLat} · {gridToGeo(goal, terrain, selectedMissionSite).formattedLon}</small>
+              </div>
+            </div>
             {(goalBlocked || goalSteep) && (
               <div className="start-goal-alert">
                 <span>⚠ Destination is on {goalBlocked ? 'an untraversable/obstacle cell' : `steep terrain (${goalSlope?.toFixed(1)}° > ${maxSlope}°)`}.</span>
@@ -806,6 +963,8 @@ export default function App() {
                 evaPosition={evaMode ? evaPosition : null}
                 returnPath={evaMode ? returnPath : EMPTY_PATH}
                 onPick={handlePick}
+                onInspect={handleInspect}
+                selectedCell={inspectedCell}
                 hazardOverlay={hazardOverlay}
                 maxSlopeDeg={maxSlope}
                 waypoints={waypoints}
@@ -815,6 +974,7 @@ export default function App() {
                 selectedScientificTargetIds={selectedScienceTargetIds}
               />
             )}
+            {terrain && <div className="inspector-map-hint"><span className="inspector-crosshair">⌖</span> CLICK TERRAIN TO INSPECT</div>}
             {terrainLoading && <div className="terrain-loading-state"><span className="spinner" /> LOADING {selectedMissionSite.region.toUpperCase()} TERRAIN</div>}
             {!terrain && !terrainLoading && <div className="terrain-loading-state terrain-error-state"><b>TERRAIN UNAVAILABLE</b><span>{error || `Could not load a terrain grid for ${selectedMissionSite.region}.`}</span></div>}
             <div className="scene-top-left"><span className="scene-tag"><i /> TERRAIN MODEL</span><span className="scene-tag muted">{'IMPORTED / GEOREFERENCED DEM'}</span></div>
@@ -1072,6 +1232,7 @@ export default function App() {
         <aside className="right-rail min-w-0">
           <div className="right-tabs">
             <button className={activeTab === 'planner' ? 'active' : ''} onClick={() => setActiveTab('planner')}>ANALYTICS</button>
+            <button className={activeTab === 'inspect' ? 'active' : ''} onClick={() => setActiveTab('inspect')} title="Inspect a selected terrain cell">INSPECT</button>
             <button className={activeTab === 'science' ? 'active' : ''} data-tour-active={tourStep === 5 || undefined} onClick={() => setActiveTab('science')}>SCIENCE</button>
             <button className={activeTab === 'jev' ? 'active' : ''} data-tour-active={tourStep === 4 || undefined} onClick={() => setActiveTab('jev')}>JEV INTEL</button>
             <button className={`data-launch ${dataMenuOpen ? 'active' : ''}`} onClick={() => setDataMenuOpen(true)} aria-haspopup="dialog" aria-expanded={dataMenuOpen}>DATA <span className="data-launch-glyph">↗</span></button>
@@ -1124,6 +1285,40 @@ export default function App() {
 
             <p className="metric-foot">{selected.metrics.model_note}</p>
           </div>}
+
+          {activeTab === 'inspect' && (
+            inspectedCell && terrain ? (
+              <ScientificTerrainInspector
+                terrain={terrain}
+                point={inspectedCell}
+                siteName={selectedMissionSite.region}
+                missionName={selectedMissionSite.mission}
+                maxSlopeDeg={maxSlope}
+                onDismiss={() => setActiveTab('planner')}
+                onClear={() => { setInspectedCell(null); setActiveTab('planner'); }}
+                onSetStart={(point) => {
+                  setStart(point);
+                  setActiveTab('planner');
+                  void runPlan(point, goal, waypoints);
+                }}
+                onSetDestination={(point) => {
+                  setGoal(point);
+                  setActiveTab('planner');
+                  void runPlan(start, point, waypoints);
+                }}
+                onAddWaypoint={(point) => {
+                  if (waypoints.length < 5) {
+                    const nextWp = [...waypoints, point];
+                    setWaypoints(nextWp);
+                    setActiveTab('planner');
+                    void runPlan(start, goal, nextWp);
+                  }
+                }}
+              />
+            ) : (
+              <div className="inspector-empty"><span className="eyebrow">CELL INSPECTION / IDLE</span><strong>No terrain cell selected</strong><p>Click any visible point on the 2D or 3D terrain surface to load its scientific readout.</p></div>
+            )
+          )}
 
           {activeTab === 'science' && (
             <ScientificTargetsPanel
@@ -1207,6 +1402,8 @@ export default function App() {
                     return;
                   }
                   setTerrain(nextTerrain);
+                  setInspectedCell(null);
+                  setActiveTab('planner');
                   setActiveJevDecision(null);
                   setPlan(null);
                   setRoutes([]);
@@ -1272,6 +1469,17 @@ export default function App() {
           warnings={terrainWarnings}
         />
       )}
+      <CoordinateInputDialog
+        isOpen={coordDialogOpen}
+        targetType={coordDialogTarget}
+        waypointIndex={coordDialogWpIdx}
+        initialPoint={coordDialogInitialPoint}
+        terrain={terrain}
+        missionSite={selectedMissionSite}
+        maxSlopeDeg={maxSlope}
+        onConfirm={handleCoordinateConfirm}
+        onClose={() => setCoordDialogOpen(false)}
+      />
       {tourStep !== null && <GuidedTour step={tourStep} onChange={setTourStep} onClose={() => { setTourStep(null); setHudOpen(false); setDataMenuOpen(false); setEvaRunning(false); }} />}
       <footer className="app-footer flex items-center justify-between"><span>© MARSCOPE RESEARCH PROTOTYPE</span><span>DATA STATUS: {terrain ? 'IMPORTED MARS DEM · SOURCE HASHED' : 'NO REAL DEM LOADED'}</span><span>NOT FOR OPERATIONAL USE</span></footer>
     </div>
