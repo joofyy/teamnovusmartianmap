@@ -7,6 +7,7 @@ import './modern-ui.css';
 import './liquid-glass.css';
 import './mission-intelligence.css';
 import './marscope-experience.css';
+import './ux-polish.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

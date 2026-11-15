@@ -714,6 +714,20 @@ export default function App() {
       </header>
 
       <main className="workspace grid min-h-0 gap-3 p-3 xl:grid-cols-[260px_minmax(0,1fr)_320px]">
+        {!plan && (
+          <section className="workspace-guide" aria-label="Quick start">
+            <div className="workspace-guide-copy">
+              <span className="workspace-guide-kicker">QUICK START</span>
+              <strong>Build your first Mars traverse</strong>
+              <p>Choose a mission site, set a start and destination, then generate route options. Use DATA to inspect or import source data; JEV Intel can tune Route B preferences.</p>
+            </div>
+            <ol className="workspace-guide-steps">
+              <li><span>01</span> Choose a site</li>
+              <li><span>02</span> Set start and destination</li>
+              <li><span>03</span> Generate routes</li>
+            </ol>
+          </section>
+        )}
         <section className="left-rail min-w-0" data-tour-active={tourStep === 3 || undefined}>
           <div className="rail-head"><span className="eyebrow">MISSION AREA</span><span className="live-chip">{terrainLoading ? 'LOADING' : terrain ? 'REAL DEM' : 'NO REAL DEM'}</span></div>
           <div className="location-card mission-site-card">

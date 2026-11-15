@@ -1,0 +1,219 @@
+/* MARSCOPE usability pass: clearer hierarchy, responsive workspace, and touch-friendly controls. */
+.workspace {
+  grid-template-columns: minmax(245px, 280px) minmax(0, 1fr) minmax(275px, 320px);
+  align-items: start;
+  gap: 14px;
+}
+.workspace-guide {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  padding: 14px 18px;
+  border: 1px solid rgba(133, 196, 207, .2);
+  border-radius: 13px;
+  background: linear-gradient(110deg, rgba(23, 43, 50, .88), rgba(17, 26, 35, .9));
+  box-shadow: inset 0 1px 0 rgba(235, 249, 255, .045), 0 10px 28px rgba(0, 0, 0, .14);
+}
+.workspace-guide-copy { min-width: 0; }
+.workspace-guide-kicker {
+  display: block;
+  margin-bottom: 5px;
+  color: #e6a47c;
+  font: 700 9px 'DM Mono', monospace;
+  letter-spacing: .15em;
+}
+.workspace-guide-copy strong {
+  display: block;
+  color: #f1f4ee;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -.02em;
+}
+.workspace-guide-copy p {
+  max-width: 760px;
+  margin: 5px 0 0;
+  color: #a6b7b7;
+  font-size: 11px;
+  line-height: 1.55;
+}
+.workspace-guide-steps {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.workspace-guide-steps li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #c7d4d0;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.workspace-guide-steps span {
+  display: grid;
+  place-items: center;
+  width: 23px;
+  height: 23px;
+  border: 1px solid rgba(221, 160, 120, .3);
+  border-radius: 7px;
+  color: #f2b48e;
+  background: rgba(219, 132, 87, .1);
+  font: 9px 'DM Mono', monospace;
+}
+.eyebrow, .section-kicker, .field-label, .mission-site-label, .layer-count {
+  font-size: 9px;
+  line-height: 1.45;
+}
+.mission-site-warning, .constraint-note, .rail-footnote p,
+.layer-metadata, .metric-foot, .route-card p {
+  font-size: 10px;
+  line-height: 1.55;
+}
+.slider-row label { font-size: 11px; }
+.slider-row b { font-size: 10px; }
+.tiny-action, .text-action {
+  min-height: 32px;
+  padding: 6px 7px;
+  font-size: 9px;
+  letter-spacing: .045em;
+}
+.primary-button, .ghost-button, .report-btn, .hud-launch-button {
+  min-height: 40px;
+  font-size: 10px;
+}
+.segmented button, .layer-button, .right-tabs button,
+.hazard-toggle, .eva-toggle {
+  min-height: 36px;
+  font-size: 10px;
+}
+.coord-card { min-height: 52px; }
+.coord-card b { font-size: 10px; }
+.coord-card small { font-size: 9px; line-height: 1.4; }
+.route-card { min-width: 0; }
+.route-card p { min-height: 0; }
+.route-metrics-mini { font-size: 9px; }
+.route-metrics-mini b { font-size: 10px; }
+.metric-hero span, .resource-row, .algorithm-runtime { font-size: 9px; }
+.scene-bottom-left, .scene-bottom-right, .view-caption, .zoom-hint {
+  font-size: 9px;
+}
+.right-tabs { scrollbar-width: thin; }
+.right-tabs button:focus-visible, .layer-button:focus-visible,
+.route-card:focus-visible, .tiny-action:focus-visible {
+  outline: 2px solid #85e5eb;
+  outline-offset: 2px;
+}
+input[type="range"] { min-height: 22px; }
+select, input:not([type="range"]), textarea { accent-color: #df916b; }
+.error-banner, .jev-message, .mission-site-warning { overflow-wrap: anywhere; }
+
+@media (max-width: 1180px) {
+  .workspace {
+    grid-template-columns: minmax(235px, .78fr) minmax(0, 1.22fr);
+  }
+  .right-rail {
+    grid-column: 1 / -1;
+    position: relative;
+    top: auto;
+    max-height: none;
+    overflow: visible;
+  }
+  .right-tabs { top: 72px; }
+  .analytics-content, .science-content, .data-content, .jev-content {
+    max-width: 100%;
+  }
+  .top-status { min-width: 0; }
+}
+@media (max-width: 760px) {
+  .workspace {
+    display: flex !important;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 10px;
+  }
+  .workspace-guide {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px;
+  }
+  .workspace-guide-steps { gap: 8px 12px; }
+  .left-rail, .right-rail {
+    position: relative;
+    top: auto;
+    width: 100%;
+    max-height: none;
+    overflow: visible;
+    padding: 14px;
+  }
+  .center-column {
+    width: 100%;
+    padding: 10px 2px 16px;
+  }
+  .topbar {
+    height: auto;
+    min-height: 64px;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    padding: 11px 14px;
+  }
+  .brand-block { min-width: 0; }
+  .mission-crumb { display: none; }
+  .top-status { min-width: 0; font-size: 9px; }
+  .view-header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .view-actions { justify-content: flex-start; gap: 7px; }
+  .view-actions > * { max-width: 100%; }
+  .segmented { flex: 0 0 auto; }
+  .segmented button { padding: 8px 10px; }
+  .terrain-frame {
+    height: clamp(280px, 56svh, 500px);
+    min-height: 280px;
+  }
+  .layer-strip { padding-top: 12px; }
+  .layer-buttons { gap: 7px; }
+  .layer-button { min-height: 36px; }
+  .route-cards { grid-template-columns: minmax(0, 1fr); }
+  .route-card { min-height: 0; }
+  .right-tabs {
+    position: sticky;
+    top: 0;
+    display: flex;
+    overflow-x: auto;
+    white-space: nowrap;
+    margin: 0 -14px;
+    padding: 0 10px;
+    scrollbar-width: thin;
+  }
+  .right-tabs button { flex: 0 0 auto; padding: 12px 9px; }
+  .metric-hero { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .profile-stats-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .robustness-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .app-footer { flex-wrap: wrap; gap: 8px; }
+}
+@media (max-width: 420px) {
+  .workspace { padding: 8px; }
+  .workspace-guide-steps { display: grid; grid-template-columns: 1fr; }
+  .top-status .top-divider, .top-status .mono { display: none; }
+  .view-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .view-actions .segmented { grid-column: 1 / -1; }
+  .view-actions .segmented button { flex: 1; }
+  .hud-control-dock button { flex-basis: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .primary-button, .ghost-button, .report-btn, .route-card {
+    transition: none !important;
+    transform: none !important;
+  }
+}
