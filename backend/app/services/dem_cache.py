@@ -316,9 +316,9 @@ def _write_local_processed(path: Path, payload: bytes) -> None:
 def _decorate_terrain(terrain: Terrain, site_id: str, site: dict[str, Any], coverage: dict[str, Any], provenance: dict[str, Any]) -> None:
     terrain.site_id = site_id
     terrain.site_name = site["name"]
-    source_hash = str(provenance.get("source_sha256") or "verified")
-    terrain.terrain_id = f"mars-dem-{site_id}-{source_hash[:12]}"
     download = provenance.get("automatic_download") if isinstance(provenance.get("automatic_download"), dict) else {}
+    source_hash = str(download.get("source_sha256") or provenance.get("source_sha256") or "verified")
+    terrain.terrain_id = f"mars-dem-{site_id}-{source_hash[:12]}"
     response_headers = download.get("response_headers") if isinstance(download.get("response_headers"), dict) else {}
     terrain.coordinate_info = {
         **(terrain.coordinate_info or {}),
@@ -369,14 +369,21 @@ def load_or_fetch_site_terrain(site_id: str, site: dict[str, Any]) -> Terrain:
 
     local_cached = _read_local_processed(processed_path, site_id)
     if local_cached:
-        return local_cached[0]
+        terrain, provenance = local_cached
+        coverage = provenance.get("site_coverage_check") or (terrain.coordinate_info or {}).get("site_coverage_check") or {}
+        _decorate_terrain(terrain, site_id, site, coverage, provenance)
+        _write_local_processed(processed_path, _serialize_cache(terrain, provenance))
+        return terrain
 
     if config:
         remote_payload = _read_s3_processed(config, processed_key)
         if remote_payload and remote_payload.get("cache_format_version") == CACHE_FORMAT_VERSION:
             try:
                 terrain = _terrain_from_dict(remote_payload["terrain"], site_id)
-                _write_local_processed(processed_path, gzip.compress(json.dumps(remote_payload, separators=(",", ":"), allow_nan=False).encode("utf-8"), compresslevel=6))
+                provenance = remote_payload.get("provenance") or {}
+                coverage = provenance.get("site_coverage_check") or (terrain.coordinate_info or {}).get("site_coverage_check") or {}
+                _decorate_terrain(terrain, site_id, site, coverage, provenance)
+                _write_local_processed(processed_path, _serialize_cache(terrain, provenance))
                 return terrain
             except Exception as exc:
                 logger.warning("Ignoring invalid persistent DEM cache for %s: %s", site_id, exc)
