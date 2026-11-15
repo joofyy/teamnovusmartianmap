@@ -1223,6 +1223,8 @@ export default function App() {
                   terrainWidth={terrain?.width ?? 64}
                   terrainHeight={terrain?.height ?? 64}
                   siteName={selectedMissionSite.region}
+                  terrain={terrain}
+                  missionSite={selectedMissionSite}
                   selectedRouteId={selectedRoute}
                   selectedRoute={selected ?? null}
                   onExportReplay={() => void downloadReport('json')}

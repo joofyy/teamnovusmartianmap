@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { MissionEvent, Point, Route, Target } from '../types';
+import type { MissionEvent, Point, Route, Target, TerrainData } from '../types';
+import type { MissionSite } from '../missionSites';
+import { gridToGeo } from '../utils/coordinates';
+import MarsEnvironmentTelemetry from './MarsEnvironmentTelemetry';
 
 type Props = {
   events: MissionEvent[];
@@ -7,6 +10,8 @@ type Props = {
   terrainHeight: number;
   cellSizeM: number;
   siteName: string;
+  terrain: TerrainData | null;
+  missionSite: MissionSite;
   selectedRouteId: string;
   selectedRoute: Route | null;
   onExportReplay: () => void;
@@ -40,7 +45,7 @@ function pathDistance(path: Point[], cellSizeM: number): number {
 }
 
 export default function MissionReplay({
-  events, terrainWidth, terrainHeight, cellSizeM, siteName, selectedRouteId, selectedRoute, onExportReplay, onExportSummary, exporting, scienceTargets = [],
+  events, terrainWidth, terrainHeight, cellSizeM, siteName, terrain, missionSite, selectedRouteId, selectedRoute, onExportReplay, onExportSummary, exporting, scienceTargets = [],
 }: Props) {
   const [eventIndex, setEventIndex] = useState(Math.max(0, events.length - 1));
   const [frame, setFrame] = useState(0);
@@ -86,10 +91,20 @@ export default function MissionReplay({
 
   const eventData = asRecord(currentEvent?.data);
   const isReplan = currentEvent?.type === 'REPLAN_COMPLETED';
+  const eventInsightTitle = currentEvent?.type === 'JEV_DECISION' ? 'Adaptive decision captured' : isReplan ? 'Route corridor updated' : currentEvent?.type === 'PLAN_CREATED' ? 'Baseline plan recorded' : 'Mission event recorded';
+  const eventInsightBody = currentEvent?.type === 'JEV_DECISION'
+    ? `${String(eventData.provider ?? 'Provider not recorded')} · ${String(eventData.model ?? 'Model not recorded')} · ${String(eventData.strategy ?? 'strategy not recorded').replace(/_/g, ' ')}`
+    : isReplan
+      ? `${String(eventData.algorithm ?? 'Incremental repair')} updated the selected route after a recorded scenario change.`
+      : currentEvent?.type === 'PLAN_CREATED'
+        ? 'The initial route alternatives and planning context were saved to this mission session.'
+        : 'Review the event summary and recorded metadata to understand this mission step.';
   const beforePath = isReplan ? asPath(eventData.path_before) : [];
   const metricsBefore = asRecord(eventData.metrics_before);
   const metricsAfter = asRecord(eventData.metrics_after);
   const visibleProgress = replayPath.slice(0, Math.min(frame + 1, replayPath.length));
+  const replayPosition = replayPath.length ? replayPath[Math.min(frame, replayPath.length - 1)] : null;
+  const replayGeo = replayPosition ? gridToGeo(replayPosition, terrain, missionSite) : null;
   const replayDistanceM = pathDistance(replayPath, cellSizeM);
   const replayTravelledM = pathDistance(visibleProgress, cellSizeM);
   const replayRemainingM = pathDistance(replayPath.slice(Math.min(frame, replayPath.length)), cellSizeM);
@@ -162,6 +177,7 @@ export default function MissionReplay({
           {isReplan && beforePath.length > 1 && <polyline className="replay-before" points={routePoints(beforePath)} />}
           {replayPath.length > 1 && <polyline className="replay-after" points={routePoints(replayPath)} />}
           {visibleProgress.length > 1 && <polyline className="replay-progress" points={routePoints(visibleProgress)} />}
+          {replayPosition && <circle className="replay-position-marker" cx={replayPosition.x} cy={terrainHeight - replayPosition.y} r="1.7" />}
         </svg>
         <div className="replay-legend"><span><i className="before-key" /> Previous path</span><span><i /> Replanned path</span><span><i className="progress-key" /> Playback</span></div>
         <div className="replay-controls">
@@ -180,6 +196,7 @@ export default function MissionReplay({
           <p>{currentEvent?.summary ?? 'No event summary available.'}</p>
           <p>{currentDate}</p>
         </div>
+        <div className="replay-event-insight"><small>MISSION INSIGHT</small><strong>{eventInsightTitle}</strong><p>{eventInsightBody}</p></div>
         {isReplan ? <>
           <div className="replay-delta-grid">
             <div className="replay-delta"><span>BEFORE DISTANCE</span><b>{formatMetric(metricsBefore.distance_m, 'm')}</b></div>
@@ -191,6 +208,7 @@ export default function MissionReplay({
         </> : <div className="replay-event-current"><small>BEFORE / AFTER</small><strong>No route geometry change in this event</strong><p>Planning decisions appear in the timeline; geometry changes appear as replanning events.</p></div>}
       </div>
     </div>
+    <MarsEnvironmentTelemetry missionSiteName={siteName} missionSite={missionSite} terrain={terrain} position={replayPosition} progress={replayProgress} eventSequence={currentEvent?.sequence ?? 0} />
     <input className="replay-range" type="range" min={0} max={Math.max(0, events.length - 1)} value={eventIndex} onChange={(event) => { setPlaying(false); setEventIndex(Number(event.target.value)); setFrame(0); }} aria-label="Mission event timeline" />
     <div className="replay-timeline">
       {events.map((event, index) => <button key={event.id} className={index === eventIndex ? 'active' : ''} onClick={() => { setPlaying(false); setEventIndex(index); setFrame(0); }}>
