@@ -156,7 +156,6 @@ class MultiObjectiveAStar:
         self.edge_cache_misses = 0
         self.expanded = 0
         self.generated = 0
-        self.resource_pruned = False
 
     def _weight(self, costs: tuple[float, ...]) -> float:
         return sum(self.weights[k] * costs[i] for i, k in enumerate(OBJECTIVES))
@@ -305,7 +304,6 @@ class MultiObjectiveAStar:
                     continue
                 new_costs = tuple(a + b for a, b in zip(label.costs, edge))
                 if not self._within_resource_limits(new_costs):
-                    self.resource_pruned = True
                     continue
                 key = (nx, ny)
                 current_ids = at_cell.setdefault(key, [])
