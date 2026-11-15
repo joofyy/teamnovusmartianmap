@@ -100,3 +100,48 @@ def test_evidence_assessment_endpoint_forwards_user_record_without_caching(monke
     assert captured["provider"] == "opencode"
     assert response.headers["cache-control"].startswith("no-store")
     assert "temporary-evidence-key" not in response.text
+
+
+def test_jev_status_endpoint_reports_config_and_last_success_without_secrets(monkeypatch):
+    async def fake_probe():
+        return {"configured": True, "reachable": True, "service_configured": True, "service_ready": True, "status_code": 200}
+
+    monkeypatch.setattr(main, "probe_jev_reachability", fake_probe)
+    monkeypatch.setattr(
+        main,
+        "jev_service_config",
+        lambda: {
+            "configured": True,
+            "service_url": "https://jev.example.test",
+            "token_configured": True,
+        },
+    )
+    monkeypatch.setattr(
+        main,
+        "last_successful_evaluation",
+        lambda: {
+            "available": True,
+            "timestamp_utc": "2026-11-15T00:00:00+00:00",
+            "endpoint": "/v1/pathfinding-weights",
+            "model": "test-model",
+            "provider": "typesafe",
+            "policy_version": "test",
+            "correlation_id": "abc12345",
+        },
+    )
+
+    client = TestClient(main.app)
+    response = client.get("/api/jev/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["configured"] is True
+    assert body["reachable"] is True
+    assert body["ready"] is True
+    assert body["reachability"]["service_ready"] is True
+    assert body["last_success"]["model"] == "test-model"
+    assert body["last_success"]["correlation_id"] == "abc12345"
+    assert response.headers["cache-control"].startswith("no-store")
+    assert "test-token-value" not in response.text
+    assert "MARSCOPE_JEV_SERVICE_TOKEN" not in response.text
+

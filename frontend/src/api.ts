@@ -1,4 +1,4 @@
-import type { JevEvidenceAssessmentResponse, JevPathfindingWeights, JevProvider, JezeroPoisResponse, ArchiveResult, BenchmarkResult, MissionConstraintsPayload, MissionEvent, OfficialSource, OfflineStatus, PlanResponse, Point, ReplanResponse, RegistryResponse, RouteReportResponse, ScienceAnswer, SensitivityResponse, TerrainData } from './types';
+import type { JevEvidenceAssessmentResponse, JevPathfindingWeights, JevProvider, JevStatus, JezeroPoisResponse, ArchiveResult, BenchmarkResult, MissionConstraintsPayload, MissionEvent, OfficialSource, OfflineStatus, PlanResponse, Point, ReplanResponse, RegistryResponse, RouteReportResponse, ScienceAnswer, SensitivityResponse, TerrainData } from './types';
 
 const API_BASE = (import.meta.env.VITE_API_BASE || (import.meta.env.DEV ? 'http://localhost:8000' : '')).replace(/\/$/, '');
 
@@ -37,6 +37,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   jezeroPois: () => request<JezeroPoisResponse>('/api/jezero/pois'),
   health: () => request<{ status: string; release: string }>('/api/health'),
+  jevStatus: () => request<JevStatus>('/api/jev/status'),
   jevPathfindingWeights: (payload: { provider: JevProvider; apiKey: string; missionPrompt: string; site_id: string }) =>
     request<JevPathfindingWeights>('/api/jev/pathfinding-weights', { method: 'POST', cache: 'no-store', body: JSON.stringify(payload) }),
   jevEvidenceAssessment: (payload: { provider: JevProvider; apiKey: string; objective: string; hypothesis: string; evidence: Array<{ id: string; title: string; summary: string; url: string; mission?: string }> }) =>

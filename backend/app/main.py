@@ -34,7 +34,7 @@ from .domain.pds_labels import inspect_label as inspect_pds_label, save_label as
 from .services.wmts import LAYERS as WMTS_LAYERS, get_capabilities as get_wmts_capabilities, download_tile_cache, inspect_cached_packages
 from .services.official_downloads import download_official_file, DownloadError
 from .services.dem_cache import DemSourceError, DemValidationError, DemCacheError, load_or_fetch_site_terrain, cache_mode
-from .services.jev_client import request_jev_evidence_assessment, request_jev_pathfinding_weights
+from .services.jev_client import jev_service_config, last_successful_evaluation, probe_jev_reachability, request_jev_evidence_assessment, request_jev_pathfinding_weights
 
 app = FastAPI(
     title="MARSCOPE API",
@@ -399,6 +399,34 @@ async def jev_evidence_assessment(response: Response, payload: dict[str, Any] = 
         "hypothesis": hypothesis,
         "evidence": evidence,
     })
+
+
+@app.get("/api/jev/status")
+async def jev_status(response: Response) -> dict[str, Any]:
+    """Report JEV configuration, reachability and the last successful evaluation.
+
+    No service token or provider key is exposed. Reachability is probed on
+    demand against the public /health endpoint only; this is not run before
+    every JEV request.
+    """
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    config = jev_service_config()
+    reachability = await probe_jev_reachability()
+    ready = (
+        bool(config["configured"])
+        and bool(reachability.get("reachable"))
+        and bool(reachability.get("service_ready"))
+    )
+    return {
+        "configured": config["configured"],
+        "service_url": config["service_url"],
+        "token_configured": config["token_configured"],
+        "reachable": reachability.get("reachable", False),
+        "ready": ready,
+        "reachability": reachability,
+        "last_success": last_successful_evaluation(),
+    }
 
 
 @app.post("/api/routes")

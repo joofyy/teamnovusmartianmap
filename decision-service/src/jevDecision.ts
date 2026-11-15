@@ -119,7 +119,9 @@ async function evaluateWithOpenCode(
 
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(`OpenCode Jev returned HTTP ${response.status}. Check the OpenCode key, model access, and temporary free-model availability.`);
+    const error = new Error("OpenCode Jev provider request failed.");
+    Object.assign(error, { statusCode: response.status });
+    throw error;
   }
   if (!payload || typeof payload !== "object" || !("answers" in payload)) {
     throw new Error("OpenCode Jev returned an unexpected response. No decision was created.");
@@ -147,7 +149,7 @@ export async function evaluateNasaEvidence(input: {
   // documented System One HTTP endpoint with the limited-time free Jev model.
   // Both keys stay request-scoped and are never copied to process.env or disk.
   const client = provider === "typesafe"
-    ? new TypeSafeClient({ apiKey, defaultModel: JEV_EVIDENCE_MODEL, logLevel: "off", timeout: 90_000 })
+    ? new TypeSafeClient({ apiKey, defaultModel: JEV_EVIDENCE_MODEL, logLevel: "off", timeout: 90_000, retry: { maxRetries: 0 } })
     : null;
   const results: EvaluationResult[] = [];
   let effectiveModel = provider === "opencode" ? OPENCODE_JEV_MODEL : JEV_EVIDENCE_MODEL;
@@ -366,7 +368,7 @@ export async function evaluateRouteCandidates(input: {
   }
 
   const client = input.provider === "typesafe"
-    ? new TypeSafeClient({ apiKey, defaultModel: JEV_EVIDENCE_MODEL, logLevel: "off", timeout: 90_000 })
+    ? new TypeSafeClient({ apiKey, defaultModel: JEV_EVIDENCE_MODEL, logLevel: "off", timeout: 90_000, retry: { maxRetries: 0 } })
     : null;
   const response = (input.provider === "opencode"
     ? await evaluateWithOpenCode(apiKey, state, questions)
@@ -564,7 +566,7 @@ export async function evaluatePathfindingWeights(input: {
 
   const response = (input.provider === "opencode"
     ? await evaluateWithOpenCode(apiKey, state, questions)
-    : await new TypeSafeClient({ apiKey, defaultModel: JEV_EVIDENCE_MODEL, logLevel: "off", timeout: 90_000 }).systemOne({ state, questions: questions as never })) as unknown as SystemOneResponse;
+    : await new TypeSafeClient({ apiKey, defaultModel: JEV_EVIDENCE_MODEL, logLevel: "off", timeout: 90_000, retry: { maxRetries: 0 } }).systemOne({ state, questions: questions as never })) as unknown as SystemOneResponse;
 
   const strategyRaw = response.answers?.mission_strategy?.choice?.trim().toLowerCase().replace(/[\s-]+/g, "_") ?? "";
   if (!Object.prototype.hasOwnProperty.call(STRATEGY_PRIORS, strategyRaw)) {

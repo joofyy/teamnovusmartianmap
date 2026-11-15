@@ -92,17 +92,27 @@ export default function DecisionCenter({
       ? 'EVALUATING'
       : applied
         ? 'ADAPTIVE_WEIGHTS_APPLIED'
-        : jevStatus?.reachable
-          ? 'CONNECTED'
-          : 'STATIC_FALLBACK';
+        : !jevStatus
+          ? 'STATIC_FALLBACK'
+          : !jevStatus.service_url
+            ? 'NOT_CONFIGURED'
+            : !jevStatus.reachable
+              ? 'SERVICE_UNREACHABLE'
+              : (!jevStatus.token_configured || jevStatus.reachability?.service_configured === false)
+                ? 'AUTH_NOT_CONFIGURED'
+                : jevStatus.reachable && (jevStatus.ready || jevStatus.reachability?.service_ready)
+                  ? 'SERVICE_READY'
+                  : 'STATIC_FALLBACK';
 
   const statusClass = error
     ? 'is-error'
     : applied
       ? 'is-active'
-      : jevStatus?.reachable
+      : statusLabel === 'SERVICE_READY'
         ? 'is-connected'
-        : '';
+        : statusLabel === 'SERVICE_UNREACHABLE' || statusLabel === 'AUTH_NOT_CONFIGURED'
+          ? 'is-warning'
+          : '';
 
   const reviewedEvidence = evidenceResult?.results?.[0];
 
@@ -209,13 +219,15 @@ export default function DecisionCenter({
                 {statusLoading
                   ? 'CHECKING'
                   : jevStatus?.reachable
-                    ? 'REACHABLE'
+                    ? jevStatus.reachability.service_ready
+                      ? 'REACHABLE · READY'
+                      : 'REACHABLE · SERVICE TOKEN MISSING'
                     : 'UNREACHABLE / UNKNOWN'}
               </b>
             </div>
 
             <div>
-              <span>CONFIGURATION</span>
+              <span>BACKEND CONFIGURATION</span>
               <b>
                 {jevStatus
                   ? jevStatus.configured
@@ -228,8 +240,8 @@ export default function DecisionCenter({
             <div>
               <span>LAST SUCCESSFUL EVALUATION</span>
               <b>
-                {jevStatus?.lastSuccess?.timestamp
-                  ? new Date(jevStatus.lastSuccess.timestamp).toLocaleString()
+                {jevStatus?.last_success?.timestamp_utc
+                  ? new Date(jevStatus.last_success.timestamp_utc).toLocaleString()
                   : 'NO RECORDED SUCCESS'}
               </b>
             </div>
@@ -237,12 +249,25 @@ export default function DecisionCenter({
             <div>
               <span>MODEL / PROVIDER</span>
               <b>
-                {jevStatus?.lastSuccess
-                  ? `${jevStatus.lastSuccess.model} / ${jevStatus.lastSuccess.provider}`
+                {jevStatus?.last_success?.available
+                  ? `${jevStatus.last_success.model ?? '—'} / ${jevStatus.last_success.provider ?? '—'}`
                   : 'NOT AVAILABLE'}
               </b>
             </div>
+
+            <div>
+              <span>CORRELATION ID</span>
+              <b>
+                {jevStatus?.last_success?.correlation_id
+                  ? jevStatus.last_success.correlation_id.slice(0, 8)
+                  : '—'}
+              </b>
+            </div>
           </div>
+
+          <p className="jev-diagnostics-note" style={{ fontSize: '11px', opacity: 0.75, marginTop: '8px' }}>
+            Diagnostics reflect service health and local process state. Process history clears on service restart. Health checks do not verify third-party AI provider keys.
+          </p>
 
           {statusError && (
             <div className="jev-message is-error" role="alert">

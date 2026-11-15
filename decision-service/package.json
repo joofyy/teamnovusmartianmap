@@ -9,7 +9,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
-    "test": "node --test dist/policy.test.js dist/routeDecision.test.js dist/pathfindingWeights.test.js"
+    "test": "node --test dist/policy.test.js dist/routeDecision.test.js dist/pathfindingWeights.test.js dist/providerErrors.test.js dist/server.test.js"
   },
   "dependencies": {
     "@typesafe-ai/sdk": "0.7.0",

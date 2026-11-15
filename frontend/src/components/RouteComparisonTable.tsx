@@ -37,8 +37,17 @@ export default function RouteComparisonTable({ routes, selectedRouteId, onSelect
               {routes.map((r) => (
                 <th
                   key={r.id}
+                  tabIndex={0}
+                  role="button"
+                  aria-pressed={r.id === selectedRouteId}
                   className={`route-col ${r.id === selectedRouteId ? 'active-col' : ''}`}
                   onClick={() => onSelectRoute(r.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onSelectRoute(r.id);
+                    }
+                  }}
                 >
                   <div className="th-route-header">
                     <span className={`route-letter route-${r.id}`}>{r.id}</span>

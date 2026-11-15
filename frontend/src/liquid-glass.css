@@ -1525,6 +1525,30 @@ input[type="range"] {
   background: rgba(63, 136, 89, .14);
 }
 
+.jev-status.is-connected {
+  border-color: rgba(69, 202, 240, 0.35);
+  color: #8be5f8;
+  background: rgba(30, 90, 115, 0.18);
+}
+
+.jev-status.is-warning {
+  border-color: rgba(228, 182, 94, 0.35);
+  color: #f2d26f;
+  background: rgba(140, 100, 30, 0.18);
+}
+
+.jev-status.is-error {
+  border-color: rgba(216, 94, 69, 0.35);
+  color: #f59b8a;
+  background: rgba(130, 45, 35, 0.18);
+}
+
+.jev-status.is-loading {
+  border-color: rgba(148, 163, 184, 0.4);
+  color: #cbd5e1;
+  background: rgba(100, 116, 139, 0.15);
+}
+
 .jev-context-grid > div,
 .jev-model-row > div {
   border: 1px solid rgba(203, 221, 237, .1);
