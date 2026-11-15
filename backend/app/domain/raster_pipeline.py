@@ -101,16 +101,26 @@ def _local_std(array: np.ndarray) -> np.ndarray:
     return np.nanstd(stack, axis=0)
 
 
-def dem_to_terrain(path: Path, *, width: int = 96, height: int = 96, vertical_units: str = "m") -> tuple[Any, dict[str, Any]]:
-    """Convert a verified, metric-projected Mars elevation raster to the route grid.
+def dem_to_terrain(
+    path: Path,
+    *,
+    width: int = 96,
+    height: int = 96,
+    vertical_units: str = "m",
+    window_center_xy_m: tuple[float, float] | None = None,
+    window_size_m: float = 2400.0,
+) -> tuple[Any, dict[str, Any]]:
+    """Convert a verified Mars DEM to a local, site-centred route grid.
 
-    This importer derives only elevation, slope and local roughness. It does not
-    create substitute soil, temperature, radiation, atmosphere, uncertainty or
-    science values when those source layers are absent.
+    A large site mosaic must not be stretched across the entire 96 x 96 planner
+    grid: doing so can make each cell hundreds or thousands of metres wide and
+    make the default EVA route exceed every resource budget. When a projected
+    site reference is supplied, read a bounded square around it instead.
     """
     try:
         import rasterio
         from rasterio.enums import Resampling
+        from rasterio.windows import Window, from_bounds
     except ImportError as exc:
         raise RuntimeError("Install backend/requirements-geospatial.txt before importing Mars terrain.") from exc
     from ..terrain import Terrain
@@ -124,24 +134,63 @@ def dem_to_terrain(path: Path, *, width: int = 96, height: int = 96, vertical_un
         raise ValueError("This import path accepts DEM vertical units in metres only. Verify the original product label before import.")
     if info["band_count"] < 1:
         raise ValueError("DEM has no raster bands.")
+    if not math.isfinite(window_size_m) or not 500.0 <= window_size_m <= 20000.0:
+        raise ValueError("Local route-grid window_size_m must be between 500 and 20,000 metres.")
 
     with rasterio.open(path) as src:
         if src.units and src.units[0]:
             band_unit = str(src.units[0]).strip().lower()
             if band_unit not in {"m", "meter", "meters", "metre", "metres"}:
                 raise ValueError(f"DEM band metadata declares unit {src.units[0]!r}, not metres. Convert explicitly using the source label.")
-        masked = src.read(1, out_shape=(height, width), masked=True, resampling=Resampling.bilinear)
+        if abs(src.transform.b) > 1e-9 or abs(src.transform.d) > 1e-9:
+            raise ValueError("Rotated raster grids are not supported. Warp the verified source raster to a north-up projected grid first.")
+
+        if window_center_xy_m is None:
+            # Legacy/import compatibility only. Production automatic loading
+            # supplies the projected mission-site reference coordinate.
+            source_window = Window(0, 0, src.width, src.height)
+            route_bounds = (src.bounds.left, src.bounds.bottom, src.bounds.right, src.bounds.top)
+        else:
+            half = window_size_m / 2.0
+            requested_bounds = (
+                float(window_center_xy_m[0]) - half,
+                float(window_center_xy_m[1]) - half,
+                float(window_center_xy_m[0]) + half,
+                float(window_center_xy_m[1]) + half,
+            )
+            requested_window = from_bounds(*requested_bounds, transform=src.transform)
+            raster_window = Window(0, 0, src.width, src.height)
+            try:
+                source_window = requested_window.intersection(raster_window).round_offsets().round_lengths()
+            except Exception as exc:
+                raise ValueError("The selected site's local DEM window does not intersect the source raster.") from exc
+            if source_window.width < 2 or source_window.height < 2:
+                raise ValueError("The selected site's DEM footprint is too small for a local route grid.")
+            local_bounds = rasterio.windows.bounds(source_window, src.transform)
+            route_bounds = (
+                float(local_bounds[0]), float(local_bounds[1]),
+                float(local_bounds[2]), float(local_bounds[3]),
+            )
+
+        if route_bounds[2] <= route_bounds[0] or route_bounds[3] <= route_bounds[1]:
+            raise ValueError("The selected site's local DEM window has invalid bounds.")
+        masked = src.read(
+            1,
+            window=source_window,
+            out_shape=(height, width),
+            masked=True,
+            resampling=Resampling.bilinear,
+        )
         z = np.asarray(masked.filled(np.nan), dtype=np.float64)
         mask = np.ma.getmaskarray(masked) | ~np.isfinite(z)
         if np.all(mask):
-            raise ValueError("DEM contains no valid elevation cells.")
-        if abs(src.transform.b) > 1e-9 or abs(src.transform.d) > 1e-9:
-            raise ValueError("Rotated raster grids are not supported. Warp the verified source raster to a north-up projected grid first.")
-        x_res = abs(src.transform.a) * (src.width / width)
-        y_res = abs(src.transform.e) * (src.height / height)
+            raise ValueError("The selected site's local DEM window contains no valid elevation cells.")
+        x_res = (route_bounds[2] - route_bounds[0]) / width
+        y_res = (route_bounds[3] - route_bounds[1]) / height
         cell_m = float((x_res + y_res) / 2.0)
         if not math.isfinite(cell_m) or cell_m <= 0:
             raise ValueError("DEM has invalid metric pixel spacing.")
+        route_transform = list(rasterio.transform.from_bounds(*route_bounds, width, height))
 
     # Compute derivatives from valid source elevations only. NaNs near a
     # coverage edge are marked no-go rather than replaced with invented heights.
@@ -185,21 +234,24 @@ def dem_to_terrain(path: Path, *, width: int = 96, height: int = 96, vertical_un
         terrain_id=f"imported-dem-{file_hash[:12]}",
         status="NASA_OR_USER_SUPPLIED_GEOREFERENCED_DEM",
         warning=(
-            "Real source DEM imported. Elevation is from the raster; slope and relative roughness are derived from it. "
+            "Real source DEM imported. The planner grid is a site-centred local crop of the source raster. "
+            "Elevation is from the raster; slope and relative roughness are derived from it. "
             "Regolith, temperature, atmosphere, radiation, uncertainty and science-target layers are unavailable and are not fabricated."
         ),
         cell_units="metres",
         layer_provenance=(
-            "Source raster CRS and metadata retained; slope derived from the imported elevation raster; "
-            "roughness is a 3x3 local standard deviation normalized to the valid-data 95th percentile. "
-            "NoData and derivative-invalid cells are blocked."
+            "Source raster CRS and metadata retained; planner grid is a site-centred local crop; "
+            "slope derived from the imported elevation raster; roughness is a 3x3 local standard deviation "
+            "normalized to the valid-data 95th percentile. NoData and derivative-invalid cells are blocked."
         ),
         coordinate_info={
             "crs": info["crs"],
             "crs_wkt": info["crs_wkt"],
-            "bounds": info["bounds"],
-            "transform": info["transform"],
+            "bounds": list(route_bounds),
+            "source_raster_bounds": info["bounds"],
+            "transform": route_transform,
             "pixel_spacing_m": [x_res, y_res],
+            "route_grid_window_size_m": [route_bounds[2] - route_bounds[0], route_bounds[3] - route_bounds[1]],
             "coverage_valid_fraction": round(valid_ratio, 6),
         },
     )
@@ -208,8 +260,10 @@ def dem_to_terrain(path: Path, *, width: int = 96, height: int = 96, vertical_un
         "source_sha256": file_hash,
         "source_file_name": path.name,
         "processing": {
-            "resampling": "bilinear to route grid",
+            "resampling": "bilinear to site-centred local route grid",
             "route_grid": [width, height],
+            "route_grid_bounds_m": list(route_bounds),
+            "route_grid_cell_size_m": cell_m,
             "declared_vertical_units": vertical_units,
             "source_band_unit": info.get("units", [None])[0],
             "slope": "atan(sqrt(dz/dx^2 + dz/dy^2)) on valid raster data",
@@ -225,7 +279,6 @@ def dem_to_terrain(path: Path, *, width: int = 96, height: int = 96, vertical_un
         ),
     }
     return grid, provenance
-
 
 NORMALIZED_LAYER_FIELDS = {
     "regolith": "regolith",
