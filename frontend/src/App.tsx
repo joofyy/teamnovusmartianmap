@@ -194,6 +194,7 @@ export default function App() {
     setDataMenuOpen(false);
     setConditionNotice('');
     setEvaProgressIndex(0);
+    setEvaPlaying(false);
     setStart(INITIAL_START);
     setGoal(INITIAL_GOAL);
     setSelectedRoute('B');
@@ -1253,7 +1254,7 @@ export default function App() {
         <AstronautHud
           mode={hudMode}
           onModeChange={setHudMode}
-          onClose={() => setHudOpen(false)}
+          onClose={() => { setHudOpen(false); setEvaPlaying(false); }}
           siteName={selectedMissionSite.region}
           terrain={terrain}
           route={selected ?? null}
