@@ -318,6 +318,8 @@ def _decorate_terrain(terrain: Terrain, site_id: str, site: dict[str, Any], cove
     terrain.site_name = site["name"]
     source_hash = str(provenance.get("source_sha256") or "verified")
     terrain.terrain_id = f"mars-dem-{site_id}-{source_hash[:12]}"
+    download = provenance.get("automatic_download") if isinstance(provenance.get("automatic_download"), dict) else {}
+    response_headers = download.get("response_headers") if isinstance(download.get("response_headers"), dict) else {}
     terrain.coordinate_info = {
         **(terrain.coordinate_info or {}),
         "selected_site_id": site_id,
@@ -328,6 +330,23 @@ def _decorate_terrain(terrain: Terrain, site_id: str, site: dict[str, Any], cove
         "site_coverage_check": coverage,
         "official_dem_product": site["dem"]["product"],
         "official_dem_source": site["dem"]["source"],
+        "dem_provenance": {
+            "official_url": download.get("official_url") or site["dem"]["url"],
+            "final_url": download.get("final_url"),
+            "source_filename": download.get("source_filename") or site["dem"]["filename"],
+            "source_sha256": download.get("source_sha256"),
+            "source_md5": download.get("source_md5"),
+            "size_bytes": download.get("size_bytes"),
+            "retrieved_utc": download.get("retrieved_utc"),
+            "source_last_modified": response_headers.get("last-modified"),
+            "source_etag": response_headers.get("etag"),
+            "product": site["dem"]["product"],
+            "source": site["dem"]["source"],
+            "source_resolution_m": site["dem"]["resolution_m"],
+            "format": site["dem"]["format"],
+            "cache_mode": cache_mode(),
+            "restored_from_persistent_cache": bool(download.get("restored_from_persistent_cache")),
+        },
     }
     provenance["selected_site_id"] = site_id
     provenance["site_coverage_check"] = coverage
