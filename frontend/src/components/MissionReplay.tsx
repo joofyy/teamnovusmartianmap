@@ -13,6 +13,13 @@ type Props = {
   onExportSummary: () => void;
   exporting: boolean;
   scienceTargets?: Target[];
+  evaProgressIndex: number;
+  evaPlaying: boolean;
+  onEvaPlayPause: () => void;
+  onEvaStepForward: () => void;
+  onEvaStepBackward: () => void;
+  onEvaReset: () => void;
+  onEvaSeek: (index: number) => void;
 };
 
 function isPoint(value: unknown): value is Point {
@@ -41,15 +48,12 @@ function pathDistance(path: Point[], cellSizeM: number): number {
 
 export default function MissionReplay({
   events, terrainWidth, terrainHeight, cellSizeM, siteName, selectedRouteId, selectedRoute, onExportReplay, onExportSummary, exporting, scienceTargets = [],
+  evaProgressIndex, evaPlaying, onEvaPlayPause, onEvaStepForward, onEvaStepBackward, onEvaReset, onEvaSeek,
 }: Props) {
   const [eventIndex, setEventIndex] = useState(Math.max(0, events.length - 1));
-  const [frame, setFrame] = useState(0);
-  const [playing, setPlaying] = useState(false);
 
   useEffect(() => {
     setEventIndex(Math.max(0, events.length - 1));
-    setFrame(0);
-    setPlaying(false);
   }, [events.length]);
 
   const currentEvent = events[eventIndex] ?? events[0] ?? null;
@@ -70,22 +74,15 @@ export default function MissionReplay({
     return path;
   }, [events, eventIndex, selectedRouteId, startingPath]);
 
-  useEffect(() => {
-    if (!playing) return undefined;
-    const timer = window.setInterval(() => {
-      setFrame((current) => {
-        if (current >= replayPath.length - 1) {
-          setPlaying(false);
-          return Math.max(0, replayPath.length - 1);
-        }
-        return current + 1;
-      });
-    }, 95);
-    return () => window.clearInterval(timer);
-  }, [playing, replayPath.length]);
+  const frame = Math.min(evaProgressIndex, Math.max(0, replayPath.length - 1));
 
   const eventData = asRecord(currentEvent?.data);
   const isReplan = currentEvent?.type === 'REPLAN_COMPLETED';
+  const recordedProgress = Number(eventData.progress_index);
+  const eventFrame = currentEvent?.type.startsWith('EVA_') && Number.isFinite(recordedProgress)
+    ? Math.max(0, Math.min(recordedProgress, Math.max(0, replayPath.length - 1)))
+    : frame;
+  const recordedPosition = isPoint(eventData.position) ? eventData.position : replayPath[eventFrame];
   const beforePath = isReplan ? asPath(eventData.path_before) : [];
   const metricsBefore = asRecord(eventData.metrics_before);
   const metricsAfter = asRecord(eventData.metrics_after);
@@ -100,7 +97,10 @@ export default function MissionReplay({
   const routePoints = (path: Point[]) => path.map((point) => `${point.x},${terrainHeight - point.y}`).join(' ');
   const replanCount = events.filter((event) => event.type === 'REPLAN_COMPLETED').length;
   const hasJev = events.some((event) => event.type === 'JEV_DECISION');
-  const status = replanCount > 0 ? 'REPLANNED' : 'PLANNED';
+  const evaStarted = events.some((event) => event.type === 'EVA_STARTED');
+  const evaCompleted = events.some((event) => event.type === 'EVA_COMPLETED');
+  const evaProgressCount = events.filter((event) => ['EVA_PROGRESS', 'EVA_RESET'].includes(event.type)).length;
+  const status = evaCompleted ? 'SIMULATED EVA COMPLETE' : evaStarted ? 'SIMULATED EVA IN PROGRESS' : replanCount > 0 ? 'REPLANNED' : 'PLANNED';
   const currentDate = currentEvent ? new Date(currentEvent.timestamp_utc).toLocaleString() : 'No events';
 
   if (events.length === 0) {
@@ -130,7 +130,7 @@ export default function MissionReplay({
     <div className="mission-summary-grid">
       <div className="mission-summary-stat"><span>MISSION STATE</span><strong>{status}</strong><small>{events.length} recorded events</small></div>
       <div className="mission-summary-stat"><span>SELECTED ROUTE</span><strong>{selectedRouteId}</strong><small>{selectedRoute?.name ?? 'No route selected'}</small></div>
-      <div className="mission-summary-stat"><span>FINAL DISTANCE</span><strong>{formatMetric(selectedRoute?.metrics.distance_m, 'm')}</strong><small>Current selected-route estimate</small></div>
+      <div className="mission-summary-stat"><span>SELECTED ROUTE DISTANCE</span><strong>{formatMetric(selectedRoute?.metrics.distance_m, 'm')}</strong><small>Planner estimate; not proof of completed traversal</small></div>
       <div className="mission-summary-stat"><span>DECISION / REPLAN LOG</span><strong>{hasJev ? 'JEV + ' : ''}{replanCount} REPLANS</strong><small>{hasJev ? 'Adaptive decision captured' : 'Static route priorities'}</small></div>
     </div>
     <div className="replay-progress-overview">
@@ -140,7 +140,7 @@ export default function MissionReplay({
         <div><span>PLAYED DISTANCE</span><strong>{replayTravelledM.toFixed(0)} m</strong></div>
         <div><span>REMAINING IN REPLAY</span><strong>{replayRemainingM.toFixed(0)} m</strong></div>
         <div><span>RECONSTRUCTED PATH</span><strong>{replayDistanceM.toFixed(0)} m</strong></div>
-        <div><span>EVENT TRACE</span><strong>{planCount} plans · {jevDecisionCount} JEV · {routeChangeCount} replans</strong></div>
+        <div><span>EVENT TRACE</span><strong>{planCount} plans · {jevDecisionCount} JEV · {routeChangeCount} replans · {evaProgressCount} EVA updates</strong></div>
       </div>
     </div>
     <div className="mission-debrief-metrics">
@@ -162,16 +162,17 @@ export default function MissionReplay({
           {isReplan && beforePath.length > 1 && <polyline className="replay-before" points={routePoints(beforePath)} />}
           {replayPath.length > 1 && <polyline className="replay-after" points={routePoints(replayPath)} />}
           {visibleProgress.length > 1 && <polyline className="replay-progress" points={routePoints(visibleProgress)} />}
+          {recordedPosition && <circle className="replay-current-position" cx={recordedPosition.x} cy={terrainHeight - recordedPosition.y} r="1.6" />}
         </svg>
         <div className="replay-legend"><span><i className="before-key" /> Previous path</span><span><i /> Replanned path</span><span><i className="progress-key" /> Playback</span></div>
         <div className="replay-controls">
-          <button onClick={() => { setPlaying(false); setFrame(0); }}>RESET</button>
-          <button onClick={() => { setPlaying(false); setFrame((value) => Math.max(0, value - 1)); }}>STEP BACK</button>
-          <button onClick={() => { if (frame >= replayPath.length - 1) setFrame(0); setPlaying((value) => !value); }}>{playing ? 'PAUSE' : 'PLAY'}</button>
-          <button onClick={() => { setPlaying(false); setFrame((value) => Math.min(Math.max(0, replayPath.length - 1), value + 1)); }}>STEP FORWARD</button>
+          <button onClick={onEvaReset}>RESET EVA</button>
+          <button onClick={onEvaStepBackward}>STEP BACK</button>
+          <button onClick={onEvaPlayPause} disabled={!replayPath.length}>{evaPlaying ? 'PAUSE EVA' : 'PLAY EVA'}</button>
+          <button onClick={onEvaStepForward} disabled={frame >= replayPath.length - 1}>STEP FORWARD</button>
         </div>
-        <input className="replay-range" type="range" min={0} max={Math.max(0, replayPath.length - 1)} value={Math.min(frame, Math.max(0, replayPath.length - 1))} onChange={(event) => { setPlaying(false); setFrame(Number(event.target.value)); }} aria-label="Route animation progress" />
-        <div className="replay-visual-title"><span>ANIMATION POSITION</span><span>{replayPath.length ? `${Math.min(frame + 1, replayPath.length)} / ${replayPath.length}` : 'N/A'}</span></div>
+        <input className="replay-range" type="range" min={0} max={Math.max(0, replayPath.length - 1)} value={frame} onChange={(event) => onEvaSeek(Number(event.target.value))} aria-label="Shared EVA simulation progress" />
+        <div className="replay-visual-title"><span>SHARED EVA POSITION</span><span>{replayPath.length ? `${Math.min(frame + 1, replayPath.length)} / ${replayPath.length}` : 'N/A'} · {Math.round((replayPath.length > 1 ? frame / (replayPath.length - 1) : 0) * 100)}%</span></div>
       </div>
       <div className="replay-side">
         <div className="replay-event-current">
@@ -191,9 +192,9 @@ export default function MissionReplay({
         </> : <div className="replay-event-current"><small>BEFORE / AFTER</small><strong>No route geometry change in this event</strong><p>Planning decisions appear in the timeline; geometry changes appear as replanning events.</p></div>}
       </div>
     </div>
-    <input className="replay-range" type="range" min={0} max={Math.max(0, events.length - 1)} value={eventIndex} onChange={(event) => { setPlaying(false); setEventIndex(Number(event.target.value)); setFrame(0); }} aria-label="Mission event timeline" />
+    <input className="replay-range" type="range" min={0} max={Math.max(0, events.length - 1)} value={eventIndex} onChange={(event) => setEventIndex(Number(event.target.value))} aria-label="Mission event timeline" />
     <div className="replay-timeline">
-      {events.map((event, index) => <button key={event.id} className={index === eventIndex ? 'active' : ''} onClick={() => { setPlaying(false); setEventIndex(index); setFrame(0); }}>
+      {events.map((event, index) => <button key={event.id} className={index === eventIndex ? 'active' : ''} onClick={() => setEventIndex(index)}>
         <span>#{event.sequence} · {humanize(event.type)}</span><strong>{event.title}</strong><small>{new Date(event.timestamp_utc).toLocaleTimeString()}</small>
       </button>)}
     </div>
