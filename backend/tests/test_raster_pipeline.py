@@ -39,6 +39,26 @@ def test_mars_dem_ingest_derives_slope_and_roughness_and_keeps_unknowns(tmp_path
     assert provenance["layers_unavailable"]
 
 
+def test_site_centred_route_grid_uses_local_dem_window(tmp_path):
+    y, x = np.indices((1024, 1024))
+    dem = (100 + x * 0.01 + y * 0.02).astype(np.float32)
+    path = tmp_path / "large_mars_mosaic.tif"
+    _write(path, dem, transform=from_origin(-5120, 5120, 10, 10))
+
+    terrain, provenance = dem_to_terrain(
+        path,
+        width=96,
+        height=96,
+        window_center_xy_m=(0.0, 0.0),
+        window_size_m=2400.0,
+    )
+
+    assert terrain.cell_m == pytest.approx(25.0, abs=0.2)
+    assert terrain.coordinate_info["bounds"] == pytest.approx([-1200.0, -1200.0, 1200.0, 1200.0], abs=10.0)
+    assert provenance["processing"]["route_grid"] == [96, 96]
+    assert provenance["processing"]["route_grid_window_size_m"] == pytest.approx([2400.0, 2400.0], abs=10.0)
+
+
 def test_earth_metre_crs_is_not_accepted_as_mars(tmp_path):
     path = tmp_path / "earth_utm.tif"
     _write(path, np.ones((32, 32)), crs=CRS.from_epsg(32631))
