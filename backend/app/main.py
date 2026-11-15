@@ -516,6 +516,8 @@ async def import_dem(
             width=max(32, min(width, 192)),
             height=max(32, min(height, 192)),
             vertical_units=vertical_units,
+            window_center_xy_m=tuple(coverage["projected_reference_xy_m"]),
+            window_size_m=2400.0,
         )
     except (ValueError, RuntimeError) as exc:
         destination.unlink(missing_ok=True)
