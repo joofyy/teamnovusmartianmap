@@ -25,6 +25,7 @@ function displayMetadata(metadata: ImportMetadata | undefined): string {
 export default function DataProvenancePanel({ missionSite, terrain, sources }: Props) {
   const info = terrain?.coordinate_info ?? {};
   const imported = asRecord(info.imported_layer_provenance);
+  const demProvenance = asRecord(info.dem_provenance);
   const available = new Set(terrain?.available_layers ?? []);
   const mask = terrain?.valid_mask?.flat() ?? [];
   const computedCoverage = mask.length ? mask.filter(Boolean).length / mask.length : null;
@@ -59,10 +60,16 @@ export default function DataProvenancePanel({ missionSite, terrain, sources }: P
         <Field label="Vertical units" value={terrain?.cell_units}/>
         <Field label="Terrain identifier" value={terrain?.id}/>
         <Field label="Valid DEM coverage" value={coverageLabel}/>
+        <Field label="Loaded source filename" value={typeof demProvenance.source_filename === 'string' ? demProvenance.source_filename : null}/>
+        <Field label="Source SHA-256" value={typeof demProvenance.source_sha256 === 'string' ? demProvenance.source_sha256 : null}/>
+        <Field label="Retrieved (UTC)" value={typeof demProvenance.retrieved_utc === 'string' ? demProvenance.retrieved_utc : null}/>
+        <Field label="Source last-modified" value={typeof demProvenance.source_last_modified === 'string' ? demProvenance.source_last_modified : null}/>
+        <Field label="Source file size" value={typeof demProvenance.size_bytes === 'number' ? `${(demProvenance.size_bytes / (1024 * 1024)).toFixed(2)} MB` : null}/>
+        <Field label="Cache mode" value={typeof demProvenance.cache_mode === 'string' ? demProvenance.cache_mode : null}/>
       </div>
-      <div className="provenance-links"><a href={missionSite.dem.downloadUrl} target="_blank" rel="noreferrer">Original product / download ↗</a><a href={missionSite.dem.documentationUrl} target="_blank" rel="noreferrer">Product documentation ↗</a><a href={missionSite.coordinateSourceUrl} target="_blank" rel="noreferrer">Landing-coordinate reference ↗</a></div>
+      <div className="provenance-links"><a href={missionSite.dem.downloadUrl} target="_blank" rel="noreferrer">Original product / download ↗</a><a href={missionSite.dem.documentationUrl} target="_blank" rel="noreferrer">Product documentation ↗</a><a href={missionSite.coordinateSourceUrl} target="_blank" rel="noreferrer">Landing-coordinate reference ↗</a>{typeof demProvenance.final_url === 'string' && <a href={demProvenance.final_url} target="_blank" rel="noreferrer">Resolved file URL ↗</a>}</div>
       <p className="provenance-note">{missionSite.dem.coverageNote}</p>
-      <p className="provenance-warning">The dataset above is the selected site's catalogue reference, not proof of the identity of an operator-uploaded raster. The current terrain response does not expose the original DEM filename or full source SHA-256; check the original product label when verifying a manually imported file.</p>
+      <p className="provenance-warning">{typeof demProvenance.source_sha256 === 'string' ? 'The automatic source download was hashed and validated against the selected site footprint before the route grid was created. Retrieval and server-response metadata above describe the cached source record.' : 'The dataset above is the selected site catalogue reference. The active terrain response has not supplied an original filename and source hash for this raster; those fields remain unavailable rather than being inferred.'}</p>
       {terrain?.warning && <p className="provenance-warning">{terrain.warning}</p>}
     </div>
 
