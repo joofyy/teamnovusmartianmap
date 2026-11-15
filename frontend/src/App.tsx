@@ -81,7 +81,7 @@ export default function App() {
   const [viewMode, setViewMode] = useState<'3D' | '2D'>('3D');
   const [pickMode, setPickMode] = useState<'start' | 'goal' | 'waypoint' | null>(null);
   const [evaMode, setEvaMode] = useState(false);
-  const [activeTab, setActiveTab] = useState<'planner' | 'jev' | 'science'>('planner');
+  const [activeTab, setActiveTab] = useState<'planner' | 'jev'>('planner');
   const [dataMenuOpen, setDataMenuOpen] = useState(false);
   const [maxSlope, setMaxSlope] = useState(22);
   const [evaMinutes, setEvaMinutes] = useState(180);
@@ -95,6 +95,7 @@ export default function App() {
   const [uncertaintyAversion, setUncertaintyAversion] = useState(1.0);
   const [loading, setLoading] = useState(true);
   const [terrainLoading, setTerrainLoading] = useState(true);
+  const [terrainRetryCount, setTerrainRetryCount] = useState(0);
   const [planning, setPlanning] = useState(false);
   const [replanning, setReplanning] = useState(false);
   const [error, setError] = useState('');
@@ -105,7 +106,16 @@ export default function App() {
   const [addedObstacles, setAddedObstacles] = useState<Point[]>([]);
   const [status, setStatus] = useState('CONNECTING');
   const [evaProgressIndex, setEvaProgressIndex] = useState(0);
+  const [evaPlaying, setEvaPlaying] = useState(false);
   const [offlineStatus, setOfflineStatus] = useState<OfflineStatus | null>(null);
+  const missionEventQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const recordMissionEvent = useCallback((planId: string, payload: { event_type: string; title: string; summary: string; data?: Record<string, unknown> }) => {
+    const siteId = activeMissionSiteIdRef.current;
+    missionEventQueueRef.current = missionEventQueueRef.current.then(async () => {
+      const snapshot = await api.recordMissionEvent(planId, payload);
+      if (activeMissionSiteIdRef.current === siteId) setMissionEvents(snapshot.events);
+    }).catch(() => {});
+  }, []);
 
   // High-value scientific visualization & UX states
   const [hazardOverlay, setHazardOverlay] = useState(false);
@@ -213,7 +223,7 @@ export default function App() {
       .finally(() => alive && setTerrainLoading(false));
 
     return () => { alive = false; };
-  }, [selectedMissionSiteId]);
+  }, [selectedMissionSiteId, terrainRetryCount]);
 
   const runPlan = useCallback(async (newStart = start, newGoal = goal, currentWaypoints = waypoints, decisionOverride: ActiveJevDecision | null = activeJevDecision) => {
     const siteId = selectedMissionSiteId;
@@ -264,6 +274,7 @@ export default function App() {
       setRoutes(result.routes);
       setSelectedRoute(validJevDecision ? 'B' : result.routes[0]?.id ?? 'B');
       setEvaProgressIndex(0);
+      setEvaPlaying(false);
       try {
         if (validJevDecision) {
           await api.recordMissionEvent(result.plan_id, {
@@ -443,6 +454,7 @@ export default function App() {
       const result = await api.updateCondition(plan.plan_id, point, 'environment_index', 0.98);
       setRoutes((previous) => previous.map((route) => route.profile === 'balanced' ? { ...route, path: result.path, metrics: result.metrics } : route));
       setEvaProgressIndex(0);
+      setEvaPlaying(false);
       setConditionNotice(`${result.notice} Repaired ${result.expanded_during_repair} search nodes.`);
       const eventSnapshot = await api.missionEvents(plan.plan_id);
       setMissionEvents(eventSnapshot.events);
@@ -477,6 +489,7 @@ export default function App() {
         : route));
       setSelectedRoute('B');
       setEvaProgressIndex(0);
+      setEvaPlaying(false);
       const eventSnapshot = await api.missionEvents(plan.plan_id);
       setMissionEvents(eventSnapshot.events);
     } catch (err) {
@@ -490,12 +503,12 @@ export default function App() {
     if (routeId === selectedRoute) return;
     setSelectedRoute(routeId);
     if (!plan) return;
-    void api.recordMissionEvent(plan.plan_id, {
+    recordMissionEvent(plan.plan_id, {
       event_type: 'ROUTE_SELECTED',
       title: `Route ${routeId} selected`,
       summary: 'The operator changed the route used for review and mission replay.',
       data: { route_id: routeId },
-    }).then((snapshot) => setMissionEvents(snapshot.events)).catch(() => undefined);
+    });
   };
 
   const downloadReport = async (format: 'markdown' | 'json') => {
@@ -558,8 +571,83 @@ export default function App() {
     ? [...terrain.targets].sort((a, b) => Math.hypot(a.x - evaPosition.x, a.y - evaPosition.y) - Math.hypot(b.x - evaPosition.x, b.y - evaPosition.y)).slice(0, 3)
     : [];
 
+  const stepEvaForward = useCallback(() => {
+    setEvaPlaying(false);
+    setEvaProgressIndex((value) => Math.min(value + 1, Math.max(0, selectedPath.length - 1)));
+  }, [selectedPath.length]);
+  const stepEvaBackward = useCallback(() => {
+    setEvaPlaying(false);
+    setEvaProgressIndex((value) => Math.max(0, value - 1));
+  }, []);
+  const resetEva = useCallback(() => {
+    setEvaPlaying(false);
+    setEvaProgressIndex(0);
+  }, []);
+  const seekEva = useCallback((index: number) => {
+    setEvaPlaying(false);
+    setEvaProgressIndex(Math.max(0, Math.min(index, Math.max(0, selectedPath.length - 1))));
+  }, [selectedPath.length]);
+  const toggleEvaPlayback = useCallback(() => {
+    if (!selectedPath.length) return;
+    if (evaIndex >= selectedPath.length - 1) setEvaProgressIndex(0);
+    setEvaPlaying((value) => !value);
+  }, [evaIndex, selectedPath.length]);
+
+  useEffect(() => {
+    if (!evaPlaying || !selectedPath.length) return undefined;
+    if (evaIndex >= selectedPath.length - 1) {
+      setEvaPlaying(false);
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      setEvaProgressIndex((value) => Math.min(value + 1, selectedPath.length - 1));
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [evaPlaying, evaIndex, selectedPath.length]);
+
+  const evaStartedPlanRef = useRef<string | null>(null);
+  const lastRecordedEvaProgressRef = useRef<{ planId: string | null; routeId: string; index: number }>({ planId: null, routeId: '', index: 0 });
+  useEffect(() => {
+    if (!evaMode || !plan || evaStartedPlanRef.current === plan.plan_id) return;
+    evaStartedPlanRef.current = plan.plan_id;
+    recordMissionEvent(plan.plan_id, {
+      event_type: 'EVA_STARTED',
+      title: 'EVA simulation started',
+      summary: 'The operator entered the browser-based EVA simulation for the selected route.',
+      data: { route_id: selectedRoute, start: { x: start.x, y: start.y }, destination: { x: goal.x, y: goal.y } },
+    });
+  }, [evaMode, plan?.plan_id, selectedRoute, start.x, start.y, goal.x, goal.y, recordMissionEvent]);
+
+  useEffect(() => {
+    if (!plan || !selectedPath.length) return;
+    const previous = lastRecordedEvaProgressRef.current;
+    if (previous.planId !== plan.plan_id || previous.routeId !== selectedRoute) {
+      lastRecordedEvaProgressRef.current = { planId: plan.plan_id, routeId: selectedRoute, index: evaIndex };
+      return;
+    }
+    if (previous.index === evaIndex) return;
+    lastRecordedEvaProgressRef.current = { planId: plan.plan_id, routeId: selectedRoute, index: evaIndex };
+    const completed = evaIndex === selectedPath.length - 1 && previous.index < evaIndex;
+    const reset = evaIndex < previous.index;
+    const nextPoint = selectedPath[Math.min(evaIndex + 1, selectedPath.length - 1)];
+    recordMissionEvent(plan.plan_id, {
+      event_type: reset ? 'EVA_RESET' : completed ? 'EVA_COMPLETED' : 'EVA_PROGRESS',
+      title: reset ? 'EVA progress reset' : completed ? 'Simulated destination reached' : `EVA progress · cell ${evaIndex + 1}/${selectedPath.length}`,
+      summary: reset ? 'The simulated EVA cursor was returned to the route start.' : completed ? 'The browser simulation reached the selected route endpoint. This is a simulated outcome, not a physical mission completion.' : 'The simulated EVA cursor advanced along the selected route.',
+      data: {
+        route_id: selectedRoute,
+        progress_index: evaIndex,
+        path_length: selectedPath.length,
+        progress_percent: selectedPath.length > 1 ? Math.round((evaIndex / (selectedPath.length - 1)) * 100) : 0,
+        position: { x: evaPosition.x, y: evaPosition.y },
+        next_position: { x: nextPoint.x, y: nextPoint.y },
+      },
+    });
+  }, [plan?.plan_id, selectedRoute, evaIndex, selectedPath.length, evaPosition.x, evaPosition.y, recordMissionEvent]);
+
   useEffect(() => {
     setEvaProgressIndex(0);
+    setEvaPlaying(false);
   }, [plan?.plan_id, selectedRoute]);
 
   useEffect(() => {
@@ -709,10 +797,10 @@ export default function App() {
               >
                 ⚠ HAZARD OVERLAY {hazardOverlay ? `(> ${maxSlope}°)` : ''}
               </button>
-              <button className={`eva-toggle ${evaMode ? 'on' : ''}`} onClick={() => setEvaMode(!evaMode)}>
+              <button className={`eva-toggle ${evaMode ? 'on' : ''}`} onClick={() => { setEvaMode((value) => !value); setEvaPlaying(false); }}>
                 <span className="eva-dot" /> EVA MODE
               </button>
-              <button className="hud-launch-button" onClick={() => setHudOpen(true)} disabled={!terrain}>
+              <button className="hud-launch-button" onClick={() => { setEvaMode(true); setHudOpen(true); }} disabled={!terrain || !selectedPath.length}>
                 ⌖ OPEN ASTRONAUT HUD
               </button>
             </div>
@@ -744,7 +832,7 @@ export default function App() {
               />
             )}
             {terrainLoading && <div className="terrain-loading-state"><span className="spinner" /> LOADING {selectedMissionSite.region.toUpperCase()} TERRAIN</div>}
-            {!terrain && !terrainLoading && <div className="terrain-loading-state terrain-error-state"><b>TERRAIN UNAVAILABLE</b><span>{error || `Could not load a terrain grid for ${selectedMissionSite.region}.`}</span></div>}
+            {!terrain && !terrainLoading && <div className="terrain-loading-state terrain-error-state"><b>TERRAIN UNAVAILABLE</b><span>{error || `Could not load a terrain grid for ${selectedMissionSite.region}.`}</span><button className="text-action" onClick={() => { setError(''); setTerrainRetryCount((count) => count + 1); }}>RETRY OFFICIAL DEM LOAD</button></div>}
             <div className="scene-top-left"><span className="scene-tag"><i /> TERRAIN MODEL</span><span className="scene-tag muted">{'IMPORTED / GEOREFERENCED DEM'}</span></div>
             <div className="scene-top-right"><span className="compass">N</span><span className="compass-line" /></div>
             <div className="scene-bottom-left"><span>GRID CELL <b>{terrain?.cell_size_m?.toFixed(1) ?? '8.0'} m</b></span><span className="scene-vertical-note">VERTICAL EXAGGERATION <b>5×</b></span></div>
@@ -800,8 +888,9 @@ export default function App() {
               <div className="eva-panel-head"><div><span className="eyebrow">FIELD NAVIGATION INTERFACE</span><h2>EXTRAVEHICULAR ACTIVITY</h2></div><span className="eva-badge">SIMULATED POSITION</span></div>
               <div className="eva-progress"><div><span>ROUTE PROGRESS</span><b>{selectedPath.length ? `${Math.round(progressFraction * 100)}%` : 'N/A'}</b></div><div className="eva-progress-track"><span style={{ width: `${progressFraction * 100}%` }} /></div><small>Grid-cell stepping for demonstration. No live localization is connected.</small></div>
               <div className="eva-controls">
-                <button onClick={() => setEvaProgressIndex((value) => Math.min(value + 1, Math.max(0, selectedPath.length - 1)))} disabled={!nextWaypoint}>ADVANCE ONE ROUTE CELL</button>
-                <button onClick={() => setEvaProgressIndex(0)} disabled={evaIndex === 0}>RESET TO START</button>
+                <button onClick={toggleEvaPlayback} disabled={!selectedPath.length}>{evaPlaying ? 'PAUSE EVA' : 'PLAY EVA'}</button>
+                <button onClick={stepEvaForward} disabled={!nextWaypoint}>ADVANCE ONE ROUTE CELL</button>
+                <button onClick={resetEva} disabled={evaIndex === 0 && !evaPlaying}>RESET TO START</button>
               </div>
               <div className="eva-grid">
                 {/* Visual Gauges */}
@@ -984,6 +1073,13 @@ export default function App() {
                   scienceTargets={selectedScienceTargets}
                   cellSizeM={terrain?.cell_size_m ?? 1}
                   onExportSummary={() => void downloadReport('markdown')}
+                  evaProgressIndex={evaIndex}
+                  evaPlaying={evaPlaying}
+                  onEvaPlayPause={toggleEvaPlayback}
+                  onEvaStepForward={stepEvaForward}
+                  onEvaStepBackward={stepEvaBackward}
+                  onEvaReset={resetEva}
+                  onEvaSeek={seekEva}
                 />
               )}
 
@@ -1000,7 +1096,6 @@ export default function App() {
         <aside className="right-rail min-w-0">
           <div className="right-tabs">
             <button className={activeTab === 'planner' ? 'active' : ''} onClick={() => setActiveTab('planner')}>ANALYTICS</button>
-            <button className={activeTab === 'science' ? 'active' : ''} onClick={() => setActiveTab('science')}>SCIENCE</button>
             <button className={activeTab === 'jev' ? 'active' : ''} onClick={() => setActiveTab('jev')}>JEV INTEL</button>
             <button className={`data-launch ${dataMenuOpen ? 'active' : ''}`} onClick={() => setDataMenuOpen(true)} aria-haspopup="dialog" aria-expanded={dataMenuOpen}>DATA <span className="data-launch-glyph">↗</span></button>
           </div>
@@ -1053,7 +1148,7 @@ export default function App() {
             <p className="metric-foot">{selected.metrics.model_note}</p>
           </div>}
 
-          {activeTab === 'science' && (
+          {activeTab === 'jev' && (
             <ScientificTargetsPanel
               terrain={terrain}
               customTargets={customScienceTargets}
@@ -1172,6 +1267,10 @@ export default function App() {
           oxygenRemainingL={Math.max(0, oxygenBudget - elapsedOxygenL)}
           energyRemainingWh={Math.max(0, energyBudgetWh - elapsedEnergyWh)}
           evaMinutesRemaining={remainingEVAClockMin}
+          evaPlaying={evaPlaying}
+          onEvaPlayPause={toggleEvaPlayback}
+          onEvaStepForward={stepEvaForward}
+          onEvaReset={resetEva}
         />
       )}
       <footer className="app-footer flex items-center justify-between"><span>© MARSCOPE RESEARCH PROTOTYPE</span><span>DATA STATUS: {terrain ? 'IMPORTED MARS DEM · SOURCE HASHED' : 'NO REAL DEM LOADED'}</span><span>NOT FOR OPERATIONAL USE</span></footer>
