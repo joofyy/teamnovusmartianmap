@@ -108,7 +108,7 @@ export default function MarsEnvironmentTelemetry({
               <div className="mars-telemetry-meter"><i style={{ width: `${clamp(progress, 0, 100)}%` }} /></div>
             </>
           ) : <p className="mars-nav-empty">Generate a route and start the replay to populate the map-referenced position.</p>}
-          <div className="mars-nav-method"><b>LOCALISATION CONCEPT</b><span>Visual odometry + terrain-map matching</span><small>Inspired by NASA’s Mars Global Localization work; this panel computes coordinates from the loaded DEM grid and landing-site reference only.</small></div>
+          <div className="mars-nav-method"><b>POSITION MODEL</b><span>Route-grid progress + site reference</span><small>Map-derived coordinates only. Unlike NASA’s image-to-orbital-map localization work, this prototype does not process rover-camera images or receive live rover telemetry.</small></div>
           <div className="mars-nav-caveat">No Mars GPS network or live rover navigation feed is connected. The marker follows this mission replay, not a spacecraft in real time.</div>
         </aside>
       </div>
