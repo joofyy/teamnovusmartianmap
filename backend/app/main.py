@@ -37,7 +37,7 @@ from .services.dem_cache import DemSourceError, DemValidationError, DemCacheErro
 
 app = FastAPI(
     title="MARSCOPE API",
-    version="0.4.0",
+    version="0.4.1",
     description="Research prototype for Mars human-traversal route-planning concepts. It is not certified navigation software.",
 )
 def _configured_cors_origins() -> list[str]:
@@ -279,8 +279,31 @@ def jezero_pois() -> dict[str, Any]:
     }
 
 @app.get("/api/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "project": "MARSCOPE", "release": "0.4.0"}
+def health() -> dict[str, Any]:
+    """Return API status and local terrain-cache diagnostics.
+
+    Archive endpoints are intentionally not pinged here; their availability is
+    checked by the corresponding request so this lightweight endpoint stays fast.
+    """
+    return {
+        "status": "ok",
+        "project": "MARSCOPE",
+        "release": "0.4.1",
+        "terrain": {
+            "supported_sites": sorted(SUPPORTED_SITE_IDS),
+            "loaded_sites": sorted(TERRAINS),
+            "loaded_count": len(TERRAINS),
+            "load_scope": "current API worker process",
+        },
+        "integrations": {
+            "configured_archives": [
+                "NASA PDS Search API",
+                "PDS Geosciences Node ODE REST",
+                "NASA/JPL Mars Trek WMTS",
+            ],
+            "availability_check": "External archive availability is checked on demand by archive requests.",
+        },
+    }
 
 @app.get("/api/terrain")
 def terrain() -> dict[str, Any]:

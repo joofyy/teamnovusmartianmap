@@ -17,7 +17,7 @@ import CoordinateInputDialog, { CoordinateTargetType } from './components/Coordi
 import { gridToGeo } from './utils/coordinates';
 import { api } from './api';
 import { DEFAULT_MISSION_SITE_ID, MISSION_SITES } from './missionSites';
-import type { BenchmarkResult, MissionEvent, MissionConstraintsPayload, OfficialSource, OfflineStatus, PlanResponse, Point, ReplanResponse, Route, Target, TerrainData } from './types';
+import type { BackendHealth, BenchmarkResult, MissionEvent, MissionConstraintsPayload, OfficialSource, OfflineStatus, PlanResponse, Point, ReplanResponse, Route, Target, TerrainData } from './types';
 
 type Layer = 'elevation' | 'slope' | 'roughness' | 'regolith' | 'temperature' | 'environment' | 'radiation' | 'uncertainty' | 'science';
 const INITIAL_START: Point = { x: 34, y: 42 };
@@ -112,6 +112,7 @@ export default function App() {
   const [benchmarking, setBenchmarking] = useState(false);
   const [addedObstacles, setAddedObstacles] = useState<Point[]>([]);
   const [status, setStatus] = useState('CONNECTING');
+  const [healthDetails, setHealthDetails] = useState<BackendHealth | null>(null);
   const [evaProgressIndex, setEvaProgressIndex] = useState(0);
   const [offlineStatus, setOfflineStatus] = useState<OfflineStatus | null>(null);
 
@@ -203,6 +204,7 @@ export default function App() {
       .then(([catalog, health]) => {
         if (!alive) return;
         setDatasets(catalog.sources);
+        setHealthDetails(health);
         setStatus(health.status.toUpperCase());
       })
       .catch((err: Error) => {
@@ -260,6 +262,11 @@ export default function App() {
           throw new Error('The backend did not return a real Mars DEM with a verified site footprint. Synthetic or unverified terrain is blocked.');
         }
         setTerrain(terrainData);
+        setHealthDetails((current) => {
+          if (!current) return current;
+          const loadedSites = Array.from(new Set([...current.terrain.loaded_sites, siteId])).sort();
+          return { ...current, terrain: { ...current.terrain, loaded_sites: loadedSites, loaded_count: loadedSites.length } };
+        });
         setStatus('OK');
       })
       .catch((err: Error) => {
@@ -634,7 +641,21 @@ export default function App() {
           <div><div className="brand-name">MARSCOPE</div><div className="brand-tag">FROM ORBIT TO BOOTPRINT</div></div>
         </div>
         <div className="mission-crumb"><span className="crumb-dot" /> {selectedMissionSite.region.toUpperCase()} <span>/</span> {selectedMissionSite.mission.toUpperCase()} <span>/</span> {selectedMissionSite.focusLabel.toUpperCase()}</div>
-        <div className="top-status"><span className={`status-dot ${status === 'OK' ? 'online' : 'offline'}`} /> API {status} <span className="top-divider" /> <span className="mono">BUILD 0.4.0</span></div>
+        <nav className="command-nav" aria-label="Workspace navigation">
+          <button type="button" className={activeTab === 'planner' ? 'active' : ''} aria-current={activeTab === 'planner' ? 'page' : undefined} onClick={() => setActiveTab('planner')}>PLAN</button>
+          <button type="button" className={activeTab === 'inspect' ? 'active' : ''} aria-current={activeTab === 'inspect' ? 'page' : undefined} onClick={() => setActiveTab('inspect')}>INSPECT</button>
+          <button type="button" className={activeTab === 'science' ? 'active' : ''} aria-current={activeTab === 'science' ? 'page' : undefined} onClick={() => setActiveTab('science')}>SCIENCE</button>
+          <button type="button" className={`command-data ${dataMenuOpen ? 'active' : ''}`} onClick={() => setDataMenuOpen(true)} aria-haspopup="dialog" aria-expanded={dataMenuOpen}>DATA <span aria-hidden="true">↗</span></button>
+          <button type="button" className="command-guide" onClick={() => { setHudOpen(false); setTourStep(0); }}>GUIDE</button>
+        </nav>
+        <div className="top-status" title={healthDetails ? `DEM cache: ${healthDetails.terrain.loaded_count} of ${healthDetails.terrain.supported_sites.length} supported sites loaded in this API worker. Archive availability is checked when requested.` : 'Backend health is loading.'}>
+          <span className={`status-dot ${status === 'OK' ? 'online' : 'offline'}`} />
+          <span>API {status}</span>
+          <span className="top-divider" />
+          <span className="status-readout">DEM {healthDetails ? `${healthDetails.terrain.loaded_count}/${healthDetails.terrain.supported_sites.length}` : '—'}</span>
+          <span className="top-divider" />
+          <span className="mono">BUILD 0.4.1</span>
+        </div>
       </header>
 
       <main className="workspace grid min-h-0 gap-3 p-3 xl:grid-cols-[260px_minmax(0,1fr)_320px]">
@@ -689,17 +710,19 @@ export default function App() {
                 </button>
               </div>
             </div>
-            <div
+            <button
+              type="button"
               className="coord-card coord-card-interactive"
               onClick={() => openCoordinateDialog('start')}
-              title="Click to edit start coordinates (Grid or Lat/Lon)"
+              aria-label="Edit start point coordinates"
+              title="Edit start coordinates (Grid or Latitude/Longitude)"
             >
               <span className="point-symbol start-symbol">A</span>
-              <div>
+              <span className="coord-text">
                 <b>{pointText(start)}</b>
                 <small>{gridToGeo(start, terrain, selectedMissionSite).formattedLat} · {gridToGeo(start, terrain, selectedMissionSite).formattedLon}</small>
-              </div>
-            </div>
+              </span>
+            </button>
             {(startBlocked || startSteep) && (
               <div className="start-goal-alert">
                 <span>⚠ Start point is on {startBlocked ? 'an untraversable/obstacle cell' : `steep terrain (${startSlope?.toFixed(1)}° > ${maxSlope}°)`}.</span>
@@ -737,15 +760,16 @@ export default function App() {
                     const wpGeo = gridToGeo(wp, terrain, selectedMissionSite);
                     return (
                       <div key={`wp-${idx}`} className="waypoint-item">
-                        <div
+                        <button
+                          type="button"
                           className="waypoint-info"
-                          style={{ cursor: 'pointer' }}
                           onClick={() => openCoordinateDialog('edit-waypoint', idx)}
-                          title="Click to edit coordinates"
+                          aria-label={`Edit waypoint ${idx + 1} coordinates`}
+                          title="Edit waypoint coordinates"
                         >
                           <span>W{idx + 1}: {pointText(wp)}</span>
                           <small>{wpGeo.formattedLat} · {wpGeo.formattedLon}</small>
-                        </div>
+                        </button>
                         <div className="waypoint-actions">
                           <button
                             type="button"
@@ -803,17 +827,19 @@ export default function App() {
                 </button>
               </div>
             </div>
-            <div
+            <button
+              type="button"
               className="coord-card coord-card-interactive"
               onClick={() => openCoordinateDialog('goal')}
-              title="Click to edit destination coordinates (Grid or Lat/Lon)"
+              aria-label="Edit destination coordinates"
+              title="Edit destination coordinates (Grid or Latitude/Longitude)"
             >
               <span className="point-symbol goal-symbol">B</span>
-              <div>
+              <span className="coord-text">
                 <b>{pointText(goal)}</b>
                 <small>{gridToGeo(goal, terrain, selectedMissionSite).formattedLat} · {gridToGeo(goal, terrain, selectedMissionSite).formattedLon}</small>
-              </div>
-            </div>
+              </span>
+            </button>
             {(goalBlocked || goalSteep) && (
               <div className="start-goal-alert">
                 <span>⚠ Destination is on {goalBlocked ? 'an untraversable/obstacle cell' : `steep terrain (${goalSlope?.toFixed(1)}° > ${maxSlope}°)`}.</span>
@@ -824,8 +850,12 @@ export default function App() {
             {pickMode && <div className="pick-hint">Click a location on the terrain to set the {pickMode === 'start' ? 'start point' : pickMode === 'goal' ? 'destination' : 'waypoint target'}.</div>}
           </div>
 
-          <div className="field-stack mission-params">
-            <div className="section-kicker">OPERATIONAL CONSTRAINTS</div>
+          <details className="settings-disclosure">
+            <summary>
+              <span><b>MISSION CONSTRAINTS</b><small>Resource budgets and route priorities</small></span>
+              <span className="settings-disclosure-meta">9 CONTROLS</span>
+            </summary>
+            <div className="field-stack mission-params">
             <div className="slider-row"><div><label>Maximum slope</label><b>{maxSlope}°</b></div><input type="range" min="10" max="35" value={maxSlope} onChange={(e) => setMaxSlope(Number(e.target.value))} /></div>
             <div className="slider-row"><div><label>EVA time budget</label><b>{evaMinutes} min</b></div><input type="range" min="60" max="300" step="15" value={evaMinutes} onChange={(e) => setEvaMinutes(Number(e.target.value))} /></div>
             <div className="slider-row"><div><label>Energy budget</label><b>{energyBudgetWh} Wh</b></div><input type="range" min="100" max="1000" step="25" value={energyBudgetWh} onChange={(e) => setEnergyBudgetWh(Number(e.target.value))} /></div>
@@ -837,8 +867,9 @@ export default function App() {
             <div className="slider-row"><div><label>Scientific opportunity</label><b>{sciencePriority.toFixed(1)}×</b></div><input type="range" min="0" max="3" step="0.1" value={sciencePriority} onChange={(e) => setSciencePriority(Number(e.target.value))} /></div>
             <div className="slider-row"><div><label>Terrain / environment risk aversion</label><b>{riskAversion.toFixed(1)}×</b></div><input type="range" min="0" max="3" step="0.1" value={riskAversion} onChange={(e) => setRiskAversion(Number(e.target.value))} /></div>
             <div className="slider-row"><div><label>Data uncertainty aversion</label><b>{uncertaintyAversion.toFixed(1)}×</b></div><input type="range" min="0" max="3" step="0.1" value={uncertaintyAversion} onChange={(e) => setUncertaintyAversion(Number(e.target.value))} /></div>
-            <div className="constraint-note"><span className="lock-icon">⌑</span> Multipliers reweight profile preferences and normalize weights to sum to 1. Hard constraints and return reserve are not relaxed. All mobility/resource values remain unvalidated research assumptions.</div>
-          </div>
+              <div className="constraint-note"><span className="lock-icon">⌑</span> Multipliers reweight profile preferences and normalize weights to sum to 1. Hard constraints and return reserve are not relaxed. All mobility/resource values remain unvalidated research assumptions.</div>
+            </div>
+          </details>
           <button className="primary-button" onClick={() => void runPlan()} disabled={planning || terrainLoading || !terrain || terrain.site_id !== selectedMissionSiteId}>
             {planning ? <><span className="spinner" /> COMPUTING ROUTES</> : <><span>⌁</span> GENERATE ROUTE OPTIONS</>}
           </button>

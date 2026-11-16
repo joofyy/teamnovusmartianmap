@@ -22,3 +22,4 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
     });
   });
 }
+import './command-center.css';

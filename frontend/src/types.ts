@@ -1,3 +1,19 @@
+export type BackendHealth = {
+  status: string;
+  project: string;
+  release: string;
+  terrain: {
+    supported_sites: string[];
+    loaded_sites: string[];
+    loaded_count: number;
+    load_scope: string;
+  };
+  integrations: {
+    configured_archives: string[];
+    availability_check: string;
+  };
+};
+
 export type Point = { x: number; y: number };
 
 export type PlannerObjective = 'distance' | 'time' | 'energy' | 'terrain_risk' | 'environment_risk' | 'radiation' | 'uncertainty' | 'science_opportunity_cost' | 'oxygen';

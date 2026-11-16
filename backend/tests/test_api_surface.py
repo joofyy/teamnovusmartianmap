@@ -20,7 +20,12 @@ def test_api_health_catalog_and_science_routes():
         catalog = client.get("/api/data/catalog")
         evidence = client.get("/api/science/evidence")
     assert health.status_code == 200
-    assert health.json()["project"] == "MARSCOPE"
+    health_payload = health.json()
+    assert health_payload["project"] == "MARSCOPE"
+    assert health_payload["release"] == "0.4.1"
+    assert health_payload["terrain"]["supported_sites"]
+    assert health_payload["terrain"]["loaded_count"] == len(health_payload["terrain"]["loaded_sites"])
+    assert "on demand" in health_payload["integrations"]["availability_check"]
     assert catalog.status_code == 200
     assert {"NASA PDS Search API", "PDS Geosciences Node ODE REST"}.issubset(set(catalog.json()["archives_connected"]))
     assert evidence.status_code == 200
