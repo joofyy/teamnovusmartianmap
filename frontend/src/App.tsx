@@ -263,7 +263,7 @@ export default function App() {
         }
         setTerrain(terrainData);
         setHealthDetails((current) => {
-          if (!current) return current;
+          if (!current?.terrain) return current;
           const loadedSites = Array.from(new Set([...current.terrain.loaded_sites, siteId])).sort();
           return { ...current, terrain: { ...current.terrain, loaded_sites: loadedSites, loaded_count: loadedSites.length } };
         });
@@ -648,11 +648,11 @@ export default function App() {
           <button type="button" className={`command-data ${dataMenuOpen ? 'active' : ''}`} onClick={() => setDataMenuOpen(true)} aria-haspopup="dialog" aria-expanded={dataMenuOpen}>DATA <span aria-hidden="true">↗</span></button>
           <button type="button" className="command-guide" onClick={() => { setHudOpen(false); setTourStep(0); }}>GUIDE</button>
         </nav>
-        <div className="top-status" title={healthDetails ? `DEM cache: ${healthDetails.terrain.loaded_count} of ${healthDetails.terrain.supported_sites.length} supported sites loaded in this API worker. Archive availability is checked when requested.` : 'Backend health is loading.'}>
+        <div className="top-status" title={healthDetails?.terrain ? `DEM cache: ${healthDetails.terrain.loaded_count} of ${healthDetails.terrain.supported_sites.length} supported sites loaded in this API worker. Archive availability is checked when requested.` : healthDetails ? 'Backend is online; detailed terrain diagnostics require API release 0.4.1 or newer.' : 'Backend health is loading.'}>
           <span className={`status-dot ${status === 'OK' ? 'online' : 'offline'}`} />
           <span>API {status}</span>
           <span className="top-divider" />
-          <span className="status-readout">DEM {healthDetails ? `${healthDetails.terrain.loaded_count}/${healthDetails.terrain.supported_sites.length}` : '—'}</span>
+          <span className="status-readout">DEM {healthDetails?.terrain ? `${healthDetails.terrain.loaded_count}/${healthDetails.terrain.supported_sites.length}` : '—'}</span>
           <span className="top-divider" />
           <span className="mono">BUILD 0.4.1</span>
         </div>

@@ -2,13 +2,13 @@ export type BackendHealth = {
   status: string;
   project: string;
   release: string;
-  terrain: {
+  terrain?: {
     supported_sites: string[];
     loaded_sites: string[];
     loaded_count: number;
     load_scope: string;
   };
-  integrations: {
+  integrations?: {
     configured_archives: string[];
     availability_check: string;
   };
