@@ -1,16 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import TerrainScene from './components/TerrainScene';
-import ScientificTerrainInspector from './components/ScientificTerrainInspector';
-import DataExplorer from './components/DataExplorer';
-import RouteProfileChart from './components/RouteProfileChart';
-import RouteExplainability from './components/RouteExplainability';
-import RouteComparisonTable from './components/RouteComparisonTable';
-import MissionReplay from './components/MissionReplay';
-import SensitivityAnalysis from './components/SensitivityAnalysis';
-import DataProvenancePanel from './components/DataProvenancePanel';
-import ScientificTargetsPanel from './components/ScientificTargetsPanel';
-import RouteRobustnessPanel from './components/RouteRobustnessPanel';
-import AstronautHud from './components/AstronautHud';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+const TerrainScene = lazy(() => import('./components/TerrainScene'));
+const ScientificTerrainInspector = lazy(() => import('./components/ScientificTerrainInspector'));
+const DataExplorer = lazy(() => import('./components/DataExplorer'));
+const RouteProfileChart = lazy(() => import('./components/RouteProfileChart'));
+const RouteExplainability = lazy(() => import('./components/RouteExplainability'));
+const RouteComparisonTable = lazy(() => import('./components/RouteComparisonTable'));
+const MissionReplay = lazy(() => import('./components/MissionReplay'));
+const SensitivityAnalysis = lazy(() => import('./components/SensitivityAnalysis'));
+const DataProvenancePanel = lazy(() => import('./components/DataProvenancePanel'));
+const ScientificTargetsPanel = lazy(() => import('./components/ScientificTargetsPanel'));
+const RouteRobustnessPanel = lazy(() => import('./components/RouteRobustnessPanel'));
+const AstronautHud = lazy(() => import('./components/AstronautHud'));
 import MarscopeLanding from './components/MarscopeLanding';
 import GuidedTour from './components/GuidedTour';
 import CoordinateInputDialog, { CoordinateTargetType } from './components/CoordinateInputDialog';
@@ -853,7 +853,7 @@ export default function App() {
           <details className="settings-disclosure">
             <summary>
               <span><b>MISSION CONSTRAINTS</b><small>Resource budgets and route priorities</small></span>
-              <span className="settings-disclosure-meta">9 CONTROLS</span>
+              <span className="settings-disclosure-meta">10 CONTROLS</span>
             </summary>
             <div className="field-stack mission-params">
             <div className="slider-row"><div><label>Maximum slope</label><b>{maxSlope}°</b></div><input type="range" min="10" max="35" value={maxSlope} onChange={(e) => setMaxSlope(Number(e.target.value))} /></div>
@@ -904,7 +904,8 @@ export default function App() {
 
           <div className="terrain-frame" data-tour-active={tourStep === 2 || undefined}>
             {terrain && terrain.site_id === selectedMissionSiteId && (
-              <TerrainScene
+              <Suspense fallback={<LazyPanelFallback label="Preparing terrain renderer…" />}>
+                <TerrainScene
                 key={terrain.id}
                 terrain={terrain}
                 routes={routes}
@@ -927,7 +928,8 @@ export default function App() {
                 deviationPoint={deviationPoint}
                 scientificTargets={scienceTargets}
                 selectedScientificTargetIds={selectedScienceTargetIds}
-              />
+                />
+              </Suspense>
             )}
             {terrain && <div className="inspector-map-hint"><span className="inspector-crosshair">⌖</span> CLICK TERRAIN TO INSPECT</div>}
             {terrainLoading && <div className="terrain-loading-state"><span className="spinner" /> LOADING {selectedMissionSite.region.toUpperCase()} TERRAIN</div>}
@@ -1089,7 +1091,8 @@ export default function App() {
 
               {/* Sensitivity Analysis Drawer / Modal */}
               {showSensitivity && (
-                <SensitivityAnalysis
+                <Suspense fallback={<LazyPanelFallback label="Loading sensitivity analysis…" />}>
+                  <SensitivityAnalysis
                   siteId={selectedMissionSiteId}
                   start={start}
                   goal={goal}
@@ -1103,16 +1106,19 @@ export default function App() {
                   }}
                   onPreviewPath={(path, label) => setPreviewRoute({ path, label })}
                   onClose={() => { setShowSensitivity(false); setPreviewRoute(null); }}
-                />
+                  />
+                </Suspense>
               )}
 
               {/* Multi-Route Comparison Table */}
               {showComparison && (
-                <RouteComparisonTable
+                <Suspense fallback={<LazyPanelFallback label="Loading route comparison…" />}>
+                  <RouteComparisonTable
                   routes={routes}
                   selectedRouteId={selectedRoute}
                   onSelectRoute={handleRouteSelect}
-                />
+                  />
+                </Suspense>
               )}
 
               <div className="route-cards">
@@ -1127,27 +1133,32 @@ export default function App() {
 
               {/* Elevation & Slope Profile Chart */}
               {terrain && selected && (
-                <RouteProfileChart
+                <Suspense fallback={<LazyPanelFallback label="Loading route profile…" />}>
+                  <RouteProfileChart
                   terrain={terrain}
                   route={selected}
                   maxSlopeDeg={maxSlope}
-                />
+                  />
+                </Suspense>
               )}
 
               {/* Route Decision Explainability Panel */}
               {terrain && selected && (
-                <RouteExplainability
+                <Suspense fallback={<LazyPanelFallback label="Loading route explanation…" />}>
+                  <RouteExplainability
                   terrain={terrain}
                   route={selected}
                   start={start}
                   goal={goal}
                   maxSlopeDeg={maxSlope}
                   onSelectDeviation={setDeviationPoint}
-                />
+                  />
+                </Suspense>
               )}
 
               {terrain && selected && (
-                <RouteRobustnessPanel
+                <Suspense fallback={<LazyPanelFallback label="Loading robustness analysis…" />}>
+                  <RouteRobustnessPanel
                   siteId={selectedMissionSiteId}
                   terrain={terrain}
                   start={start}
@@ -1155,11 +1166,13 @@ export default function App() {
                   maxSlope={maxSlope}
                   constraints={robustnessConstraints}
                   selectedRoute={selected}
-                />
+                  />
+                </Suspense>
               )}
 
               {plan && (
-                <MissionReplay
+                <Suspense fallback={<LazyPanelFallback label="Loading mission replay…" />}>
+                  <MissionReplay
                   events={missionEvents}
                   terrainWidth={terrain?.width ?? 64}
                   terrainHeight={terrain?.height ?? 64}
@@ -1171,7 +1184,8 @@ export default function App() {
                   scienceTargets={selectedScienceTargets}
                   cellSizeM={terrain?.cell_size_m ?? 1}
                   onExportSummary={() => void downloadReport('markdown')}
-                />
+                  />
+                </Suspense>
               )}
 
               {benchmarkResults.length > 0 && <div className="benchmark-strip">
@@ -1242,7 +1256,8 @@ export default function App() {
 
           {activeTab === 'inspect' && (
             inspectedCell && terrain ? (
-              <ScientificTerrainInspector
+              <Suspense fallback={<LazyPanelFallback label="Loading terrain inspector…" />}>
+                <ScientificTerrainInspector
                 terrain={terrain}
                 point={inspectedCell}
                 siteName={selectedMissionSite.region}
@@ -1268,14 +1283,16 @@ export default function App() {
                     void runPlan(start, goal, nextWp);
                   }
                 }}
-              />
+                />
+              </Suspense>
             ) : (
               <div className="inspector-empty"><span className="eyebrow">CELL INSPECTION / IDLE</span><strong>No terrain cell selected</strong><p>Click any visible point on the 2D or 3D terrain surface to load its scientific readout.</p></div>
             )
           )}
 
           {activeTab === 'science' && (
-            <ScientificTargetsPanel
+            <Suspense fallback={<LazyPanelFallback label="Loading science workspace…" />}>
+              <ScientificTargetsPanel
               terrain={terrain}
               customTargets={customScienceTargets}
               selectedIds={selectedScienceTargetIds}
@@ -1307,7 +1324,8 @@ export default function App() {
                 setActiveTab('planner');
                 void runPlan(start, point, []);
               }}
-            />
+              />
+            </Suspense>
           )}
 
 
@@ -1323,7 +1341,8 @@ export default function App() {
             </header>
             <div className="data-modal-meta"><span><i /> LIVE DATA INTERFACE</span><span>{datasets.length} CATALOGUED SOURCES</span><span>{terrain ? 'TERRAIN LOADED' : 'AWAITING TERRAIN'}</span></div>
             <div className="data-modal-body">
-              <DataProvenancePanel missionSite={selectedMissionSite} terrain={terrain} sources={datasets} />
+              <Suspense fallback={<LazyPanelFallback label="Loading data catalogue…" />}>
+                <DataProvenancePanel missionSite={selectedMissionSite} terrain={terrain} sources={datasets} />
               <DataExplorer
                 missionSite={selectedMissionSite}
                 terrainLoaded={Boolean(terrain && isVerifiedRealTerrain(terrain, selectedMissionSiteId))}
@@ -1350,14 +1369,16 @@ export default function App() {
                   setStart(nextStart);
                   setGoal(nextGoal);
                 }}
-              />
+                />
+              </Suspense>
             </div>
           </section>
         </div>
       )}
 
       {hudOpen && (
-        <AstronautHud
+        <Suspense fallback={<LazyPanelFallback label="Opening astronaut interface…" />}>
+          <AstronautHud
           mode={hudMode}
           onModeChange={setHudMode}
           onClose={() => { setEvaRunning(false); setHudOpen(false); }}
@@ -1400,7 +1421,8 @@ export default function App() {
           energyRemainingWh={selected ? Math.max(0, energyBudgetWh - elapsedEnergyWh) : Number.NaN}
           evaMinutesRemaining={selected ? remainingEVAClockMin : Number.NaN}
           warnings={terrainWarnings}
-        />
+          />
+        </Suspense>
       )}
       <CoordinateInputDialog
         isOpen={coordDialogOpen}
@@ -1417,6 +1439,10 @@ export default function App() {
       <footer className="app-footer flex items-center justify-between"><span>© MARSCOPE RESEARCH PROTOTYPE</span><span>DATA STATUS: {terrain ? 'IMPORTED MARS DEM · SOURCE HASHED' : 'NO REAL DEM LOADED'}</span><span>NOT FOR OPERATIONAL USE</span></footer>
     </div>
   );
+}
+
+function LazyPanelFallback({ label }: { label: string }) {
+  return <div className="lazy-panel-state" role="status"><span className="spinner" />{label}</div>;
 }
 
 function MetricBar({ label, value, color }: { label: string; value: number | null; color: string }) {

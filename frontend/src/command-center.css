@@ -443,7 +443,17 @@ textarea:focus-visible, summary:focus-visible, [tabindex]:focus-visible {
   .brand-tag { font-size: 6px; }
   .top-status .top-divider, .top-status .mono { display: none; }
   .top-status .status-readout { display: none; }
-  .command-nav { display: none; }
+  .command-nav {
+    display: flex;
+    order: 3;
+    flex: 0 0 100%;
+    width: 100%;
+    justify-content: space-between;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .command-nav::-webkit-scrollbar { display: none; }
+  .command-nav button { flex: 1 0 auto; min-width: 54px; padding-inline: 8px; font-size: 7px; }
   .workspace { padding: 8px; }
   .left-rail, .right-rail { padding-inline: 11px; }
   .right-tabs { margin-inline: -11px; padding-inline: 5px; }
@@ -470,4 +480,27 @@ textarea:focus-visible, summary:focus-visible, [tabindex]:focus-visible {
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
   }
+}
+
+
+/* Lazy feature loading: keep the workspace shell responsive while optional
+   instruments, data explorers and Three.js terrain renderers are fetched. */
+.lazy-panel-state {
+  display: flex;
+  min-height: 74px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 10px 0;
+  padding: 16px;
+  border: 1px dashed rgba(145, 190, 204, .24);
+  border-radius: 10px;
+  color: #a9c0c8;
+  background: rgba(7, 16, 26, .62);
+  font: 8px 'DM Mono', monospace;
+  letter-spacing: .07em;
+}
+@media (max-width: 560px) {
+  .command-nav { padding: 3px; }
+  .command-nav button { min-height: 30px; }
 }
