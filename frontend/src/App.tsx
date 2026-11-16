@@ -631,7 +631,7 @@ export default function App() {
 
   if (loading) return <div className="boot-screen"><div className="boot-mark">M</div><div className="boot-title">MARSCOPE</div><div className="boot-sub">INITIALIZING PLANETARY SYSTEMS</div><div className="boot-bar"><span /></div></div>;
 
-  if (!workspaceEntered) return <MarscopeLanding apiStatus={status} terrainAvailable={Boolean(terrain && isVerifiedRealTerrain(terrain, selectedMissionSiteId))} onEnterWorkspace={() => setWorkspaceEntered(true)} onStartTour={() => { setWorkspaceEntered(true); setTourStep(0); }} />;
+  if (!workspaceEntered) return <MarscopeLanding apiStatus={status} terrainAvailable={Boolean(terrain && isVerifiedRealTerrain(terrain, selectedMissionSiteId))} missionSite={selectedMissionSite} onEnterWorkspace={() => setWorkspaceEntered(true)} onStartTour={() => { setWorkspaceEntered(true); setTourStep(0); }} />;
 
   return (
     <div className="app-shell min-h-screen bg-[#0b0d10] text-stone-100 antialiased">
